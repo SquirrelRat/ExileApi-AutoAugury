@@ -17,7 +17,15 @@ namespace AutoAugury;
 /// <param name="OffersToCome">The offers still to come from Cauldrons of its faction (CauldronTracker).</param>
 /// <param name="UnknownRewards">Rewards shown on the card that matched no catalogue reward, so count nothing.</param>
 internal sealed record FateScore(FateCard Card, int Total, int Gain, double Potential, bool Invoked,
-    FateCard PairedWith, int OffersToCome, int UnknownRewards);
+    FateCard PairedWith, int OffersToCome, int UnknownRewards)
+{
+    /// <summary>
+    /// Gain plus Potential, unrounded: what the cards are ranked and the best framed by. Total, its rounding, is what
+    /// is written; weak cards often all round to the same Total (0 at the Armoury, 2026-11-14 17:40:47, where their
+    /// values were 0.46, 0.46, 0.31 and 0.15).
+    /// </summary>
+    public double Value => Gain + Potential;
+}
 
 /// <summary>
 /// Scores each offered Fate by the player's weights, so the overlay can mark the best pick.

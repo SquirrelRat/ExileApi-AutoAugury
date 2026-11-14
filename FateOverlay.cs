@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Numerics;
 using ExileCore.Shared.Enums;
@@ -41,19 +42,27 @@ internal static class FateOverlay
     /// <summary>The tooltip on a score label without its parts.</summary>
     private const string ScoreHelp = "Total weight";
 
+    /// <summary>The tooltip's second line, before the hovered card's unrounded value (FateScore.Value).</summary>
+    private const string UnroundedHelp = "Weight without rounding: ";
+
+    /// <summary>Two values closer than this are equal: the same card's value worked out twice.</summary>
+    private const double SameValue = 1e-6;
+
     /// <summary>
-    /// Writes each offered card's score label above it (ScoreLabelOf), frames the best card (every best card, on a
-    /// tie), and shows ScoreWithPartsHelp as an ImGui tooltip while the mouse is over a label.
+    /// Writes each offered card's score label above it (ScoreLabelOf) and frames the best card (every best card, on an
+    /// exact tie), the best by the unrounded value (FateScore.Value), not by the Total written: weak cards often all
+    /// round to the same Total. While the mouse is over a label, an ImGui tooltip names the parts (ScoreWithPartsHelp)
+    /// and gives that card's weight without rounding, to two places ("Weight without rounding: 0.46").
     /// </summary>
     public static void DrawScores(Graphics graphics, IReadOnlyList<FateScore> scores, DisplaySettings display)
     {
         if (scores.Count == 0)
             return;
 
-        var best = scores.Max(static s => s.Total);
+        var best = scores.Max(static s => s.Value);
         var lineHeight = LineHeightOf(graphics);
         var mouse = ImGui.GetMousePos();
-        var labelHovered = false;
+        FateScore hovered = null;
 
         foreach (var score in scores)
         {
@@ -62,7 +71,7 @@ internal static class FateOverlay
             if (rect.Width <= 0f)
                 continue;
 
-            var isBest = score.Total == best;
+            var isBest = score.Value >= best - SameValue;
             var colour = isBest ? BestColour : score.Total < 0 ? NegativeColour : OtherColour;
 
             if (isBest)
@@ -71,12 +80,15 @@ internal static class FateOverlay
             var label = DrawAbove(graphics, rect, 1, lineHeight, ScoreLabelOf(score, display.ShowScoreBreakdown),
                 colour);
 
-            labelHovered |= mouse.X >= label.Left && mouse.X <= label.Right && mouse.Y >= label.Top &&
-                            mouse.Y <= label.Bottom;
+            if (mouse.X >= label.Left && mouse.X <= label.Right && mouse.Y >= label.Top && mouse.Y <= label.Bottom)
+                hovered = score;
         }
 
-        if (labelHovered)
-            ImGui.SetTooltip(display.ShowScoreBreakdown ? ScoreWithPartsHelp : ScoreHelp);
+        if (hovered != null)
+        {
+            ImGui.SetTooltip((display.ShowScoreBreakdown ? ScoreWithPartsHelp : ScoreHelp) + "\n" + UnroundedHelp +
+                             hovered.Value.ToString("0.00", CultureInfo.InvariantCulture));
+        }
     }
 
     /// <summary>

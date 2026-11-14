@@ -260,7 +260,9 @@ internal static class Dump
                 b.AppendLine($"  {label}: {card.Name} - Fate {card.Fate?.Id ?? "not in the catalogue"} " +
                              $"({card.Fate?.FactionId ?? "?"}), tier {card.Tier?.ToString() ?? "unknown"}, " +
                              $"rect {Rect(card.Rect)}" + (card.Placed ? ", greyed (in a slot)" : "") +
-                             (score == null ? "" : $"; score {FateOverlay.ScoreLabelOf(score, true)}"));
+                             (score == null
+                                 ? ""
+                                 : $"; score {FateOverlay.ScoreLabelOf(score, true)}, unrounded {score.Value:0.##}"));
 
                 foreach (var reward in card.Rewards)
                 {
