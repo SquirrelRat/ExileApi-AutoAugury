@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Numerics;
 using ExileCore;
@@ -62,6 +63,16 @@ internal sealed record TrackedCauldron(uint Id, string FactionId, CauldronStage 
 /// entity reached the entity list, about 250 away (the user, 2026-11-14), so the list reaches further. Its position
 /// stands until the entity's own is read. Whether the list holds every Cauldron of the map from the start, and whether
 /// a Cauldron's icon leaves it at the pick, is not known yet (the dump lists it).
+///
+/// Towns and hideouts track nothing, and an icon left over from the area just left is not taken. In the Lush Hideout
+/// (dump of 2026-11-14 20:57:01) the tracker knew Cauldrons 1071 and 2889 at grid positions far outside the hideout,
+/// and drew them on its large map. Their histories held no entity-list or label reading, so the server list had added
+/// them, yet it held no Cauldron icon at the dump. Suspected, not measured: the list still held the map's icons for a
+/// moment after the area change. An icon is taken for a left-over when the last area left, passing over towns and
+/// hideouts (so a short stop in the hideout between two maps is covered), listed one with the same entity id at the
+/// same grid position, and this area has not tracked that id otherwise; an icon the area left listed only in its last
+/// half second, unread, is not recognised. Each icon not taken is kept for the dump (IconsNotTracked) with when it
+/// was listed after entering, to settle the cause.
 /// </summary>
 internal sealed class CauldronTracker
 {
@@ -91,6 +102,9 @@ internal sealed class CauldronTracker
         public Vector2? GridPos;
         public bool GridPosFromEntity;
         public bool IconListed;
+
+        /// <summary>Its icon's grid position as the server list last gave it; null if never listed.</summary>
+        public Vector2? IconGrid;
         public readonly List<string> History = new();
 
         /// <summary>Adds a change to History, timed, dropping the oldest past MostHistory.</summary>
@@ -119,16 +133,65 @@ internal sealed class CauldronTracker
     private readonly Stopwatch _sinceRead = new();
     private List<TrackedCauldron> _published = [];
 
+    /// <summary>The area instance's hash; 0 when unread, in a town or hideout, or before any area change.</summary>
+    private uint _areaHash;
+
+    /// <summary>Whether the area is a town or hideout, where nothing is tracked.</summary>
+    private bool _inTownOrHideout;
+
+    /// <summary>
+    /// The Cauldron icons of the last area left other than a town or hideout, by entity id, at the grid positions its
+    /// server list gave: an icon listed here with the same id at the same position is taken for a left-over.
+    /// </summary>
+    private Dictionary<uint, Vector2> _leftAreaIcons = new();
+
+    /// <summary>Time since the area was entered; not running before the first area change.</summary>
+    private readonly Stopwatch _sinceEntered = new();
+
+    /// <summary>A Cauldron icon of the server list not tracked, why, and when it was listed after entering.</summary>
+    private sealed class IconNotTracked
+    {
+        public Vector2 Grid;
+        public string Reason;
+        public double? FirstSeconds;
+        public double? LastSeconds;
+    }
+
+    private const string LeftOverReason = "left over from the area left";
+    private const string TownOrHideoutReason = "in a town or hideout";
+
+    /// <summary>The Cauldron icons of the server list not tracked since the area was entered, by entity id.</summary>
+    private readonly Dictionary<uint, IconNotTracked> _iconsNotTracked = new();
+
+    private List<string> _publishedIconsNotTracked = [];
+
     /// <summary>
     /// On entering an area: picks up what was known of that instance (by its area hash), or starts it empty; an
-    /// unread hash (0) starts empty and is not kept. Distances, labels and the icon list are read again; Done,
-    /// Targetable, faction, positions and History are kept.
+    /// unread hash (0), a town or a hideout starts empty and is not kept. Distances, labels and the icon list are read
+    /// again; Done, Targetable, faction, positions and History are kept. The icons of the area left are kept to tell
+    /// left-overs by (_leftAreaIcons): a town or hideout, which tracks none, passes on the ones it was given, and the
+    /// same instance entered again has none.
     /// </summary>
-    public void EnterArea(uint areaHash)
+    public void EnterArea(uint areaHash, bool townOrHideout)
     {
         _sinceRead.Reset();
+        _sinceEntered.Restart();
+        _iconsNotTracked.Clear();
 
-        if (areaHash == 0u)
+        if (areaHash != 0u && areaHash == _areaHash)
+        {
+            _leftAreaIcons = new Dictionary<uint, Vector2>();
+        }
+        else if (!_inTownOrHideout)
+        {
+            _leftAreaIcons = _cauldrons.Where(static c => c.Value.IconGrid != null)
+                .ToDictionary(static c => c.Key, static c => c.Value.IconGrid.Value);
+        }
+
+        _inTownOrHideout = townOrHideout;
+        _areaHash = townOrHideout ? 0u : areaHash;
+
+        if (_areaHash == 0u)
         {
             _cauldrons = new Dictionary<uint, Tracked>();
         }
@@ -163,12 +226,29 @@ internal sealed class CauldronTracker
     /// <summary>The Cauldrons as of the last read, in a list replaced on each read, so safe to draw from.</summary>
     public IReadOnlyList<TrackedCauldron> Cauldrons => _published;
 
+    /// <summary>
+    /// The Cauldron icons of the server list not tracked since the area was entered, for the dump: "id 1071 grid
+    /// &lt;400, 732&gt; left over from the area left, listed 0.0 s to 0.5 s after entering".
+    /// </summary>
+    public IReadOnlyList<string> IconsNotTracked => _publishedIconsNotTracked;
+
     public void Update(GameController gc)
     {
         if (_sinceRead.IsRunning && _sinceRead.ElapsedMilliseconds < ReadIntervalMs)
             return;
 
         _sinceRead.Restart();
+
+        var listed = ListedCauldrons(gc);
+
+        if (_inTownOrHideout)
+        {
+            foreach (var (id, grid) in listed)
+                NoteIconNotTracked(id, grid, IsLeftOver(id, grid) ? LeftOverReason : TownOrHideoutReason);
+
+            Publish();
+            return;
+        }
 
         var owedRead = OwedIds(gc);
         var owed = owedRead ?? [];
@@ -185,7 +265,7 @@ internal sealed class CauldronTracker
             if (id == 0u)
                 continue;
 
-            var tracked = TrackedOf(id);
+            var tracked = TrackedOf(id, "in the entity list");
 
             inRange.Add(id);
             tracked.Distance = Safe.Read(entity, static e => e.DistancePlayer, float.MaxValue);
@@ -242,13 +322,19 @@ internal sealed class CauldronTracker
         }
 
         foreach (var id in owed)
-            TrackedOf(id);
-
-        var listed = ListedCauldrons(gc);
+            TrackedOf(id, "by its label");
 
         foreach (var (id, grid) in listed)
         {
-            var tracked = TrackedOf(id);
+            if (!_cauldrons.ContainsKey(id) && IsLeftOver(id, grid))
+            {
+                NoteIconNotTracked(id, grid, LeftOverReason);
+                continue;
+            }
+
+            var tracked = TrackedOf(id, $"in the server icon list at <{grid.X:0}, {grid.Y:0}>");
+
+            tracked.IconGrid = grid;
 
             if (!tracked.GridPosFromEntity)
                 tracked.GridPos = grid;
@@ -274,12 +360,42 @@ internal sealed class CauldronTracker
         Publish();
     }
 
-    private void Publish() =>
+    private void Publish()
+    {
         _published = _cauldrons
             .Select(c => new TrackedCauldron(c.Key, c.Value.FactionId,
                 c.Value.Done ? CauldronStage.Done : c.Value.Owed ? CauldronStage.Owed : CauldronStage.NotOwed,
                 c.Value.Distance, c.Value.GridPos, c.Value.Targetable, c.Value.IconListed, c.Value.History.ToList()))
             .ToList();
+        _publishedIconsNotTracked = _iconsNotTracked
+            .Select(static i => $"id {i.Key} grid <{i.Value.Grid.X:0}, {i.Value.Grid.Y:0}> {i.Value.Reason}, " +
+                                $"listed {SecondsText(i.Value.FirstSeconds)} to {SecondsText(i.Value.LastSeconds)} s " +
+                                "after entering")
+            .ToList();
+    }
+
+    private static string SecondsText(double? seconds) =>
+        seconds?.ToString("0.0", CultureInfo.InvariantCulture) ?? "?";
+
+    /// <summary>Seconds since the area was entered; null before the first area change.</summary>
+    private double? SecondsSinceEntered() =>
+        _sinceEntered.IsRunning ? _sinceEntered.Elapsed.TotalSeconds : null;
+
+    /// <summary>Whether the area just left listed a Cauldron icon with this entity id at this grid position.</summary>
+    private bool IsLeftOver(uint id, Vector2 grid) => _leftAreaIcons.TryGetValue(id, out var left) && left == grid;
+
+    /// <summary>Keeps a Cauldron icon not tracked for the dump, with when it was first and last listed.</summary>
+    private void NoteIconNotTracked(uint id, Vector2 grid, string reason)
+    {
+        var seconds = SecondsSinceEntered();
+
+        if (!_iconsNotTracked.TryGetValue(id, out var icon))
+            _iconsNotTracked[id] = icon = new IconNotTracked { FirstSeconds = seconds };
+
+        icon.Grid = grid;
+        icon.Reason = reason;
+        icon.LastSeconds = seconds;
+    }
 
     /// <summary>
     /// How many offers may still come from Cauldrons of a faction: the tracked ones not done, of that faction or of
@@ -321,11 +437,20 @@ internal sealed class CauldronTracker
             ? iconId == CauldronIconId
             : Safe.Read(icon, static i => i.MinimapIconIndex, default) == MapIconsIndex.AuguryEncounter;
 
-    private Tracked TrackedOf(uint id)
+    /// <summary>
+    /// The tracked Cauldron with this id, tracked from now if it was not, noting where it was first seen and how long
+    /// after entering the area ("first seen in the entity list, 0.4 s after entering").
+    /// </summary>
+    private Tracked TrackedOf(uint id, string firstSeen)
     {
-        if (!_cauldrons.TryGetValue(id, out var tracked))
-            _cauldrons[id] = tracked = new Tracked();
+        if (_cauldrons.TryGetValue(id, out var tracked))
+            return tracked;
 
+        _cauldrons[id] = tracked = new Tracked();
+
+        var seconds = SecondsSinceEntered();
+
+        tracked.Note($"first seen {firstSeen}" + (seconds == null ? "" : $", {SecondsText(seconds)} s after entering"));
         return tracked;
     }
 

@@ -149,7 +149,8 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     public override void AreaChange(AreaInstance area)
     {
         _fatesPanel.Forget();
-        Cauldrons.EnterArea(Safe.Read(area, static a => a?.Hash ?? 0u, 0u));
+        Cauldrons.EnterArea(Safe.Read(area, static a => a?.Hash ?? 0u, 0u),
+            Safe.Read(area, static a => a != null && (a.IsTown || a.IsHideout), false));
         ForgetPanel();
     }
 

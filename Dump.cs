@@ -322,6 +322,10 @@ internal static class Dump
         foreach (var cauldron in known.Where(static c => c.History.Count > 0))
             b.AppendLine($"    id {cauldron.Id} history: {string.Join("; ", cauldron.History)}");
 
+        var notTracked = cauldrons.IconsNotTracked;
+
+        b.AppendLine($"  Cauldron icons of the server list not tracked since entering: {notTracked.Count}" +
+                     (notTracked.Count == 0 ? "" : ": " + string.Join("; ", notTracked)));
         b.AppendLine($"  larger map icons, last frame: {CauldronMapIcons.LastFrameOf()}");
     }
 
