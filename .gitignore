@@ -1,0 +1,13 @@
+bin/
+obj/
+.vs/
+*.user
+.claude/
+
+# The HUD writes a failed build's errors here, with local paths.
+Errors.txt
+
+# Private working notes: they hold local paths and never reach a published copy.
+CLAUDE.md
+NOTES.md
+STATE.md
