@@ -236,6 +236,9 @@ internal sealed class CauldronTracker
     /// <summary>The Cauldrons as of the last read, in a list replaced on each read, so safe to draw from.</summary>
     public IReadOnlyList<TrackedCauldron> Cauldrons => _published;
 
+    /// <summary>A generation count, raised on every tracker read: the scores recompute when it changes.</summary>
+    internal int Version { get; private set; }
+
     /// <summary>
     /// The Cauldron icons of the server list not tracked since the area was entered, for the dump: "id 1071 grid
     /// &lt;400, 732&gt; left over from the area left, listed 0.0 s to 0.5 s after entering".
@@ -395,6 +398,7 @@ internal sealed class CauldronTracker
 
     private void Publish()
     {
+        Version++;
         _published = _cauldrons
             .Select(c => new TrackedCauldron(c.Key, c.Value.FactionId,
                 c.Value.Done ? CauldronStage.Done : c.Value.Owed ? CauldronStage.Owed : CauldronStage.NotOwed,

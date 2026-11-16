@@ -75,6 +75,46 @@ internal static class FateScoring
                 : "assumed";
 
     /// <summary>
+    /// What the scores depend on, so the Tick recomputes them only when it changed rather than on every 100 ms read:
+    /// the offered and collected cards (name, tier, rewards, placed), order-free.
+    /// </summary>
+    public static int FingerprintOf(FatesPanelState state)
+    {
+        var hash = new HashCode();
+
+        foreach (var key in state.Offered.Concat(state.Collection).Select(CardKey).OrderBy(static k => k))
+            hash.Add(key);
+
+        return hash.ToHashCode();
+    }
+
+    private static string CardKey(FateCard card) =>
+        card.Name + "\n" + card.Tier + "\n" + card.Placed + "\n" +
+        string.Join("\n", card.Rewards.Select(static r => r.Text + "\n" + r.CopiesNeeded));
+
+    /// <summary>What the scores depend on in the settings: Score per tier and every set weight.</summary>
+    public static int SettingsFingerprint(AutoAugurySettings settings)
+    {
+        var hash = new HashCode();
+
+        hash.Add(settings.Fates.ScorePerTier.Value);
+
+        foreach (var (family, weight) in settings.Rewards.Weights.OrderBy(static w => w.Key))
+        {
+            hash.Add(family);
+            hash.Add(weight);
+        }
+
+        foreach (var (fate, weight) in settings.Fates.Weights.OrderBy(static w => w.Key))
+        {
+            hash.Add(fate);
+            hash.Add(weight);
+        }
+
+        return hash.ToHashCode();
+    }
+
+    /// <summary>
     /// The offers still to come for a Fate's faction while choosing: the larger of the count from the map's size
     /// (MapCauldrons' assumption for the area level, less the Fates collected, less the Cauldron being chosen at) and
     /// the Cauldrons the tracker knows not done. The count from the map's size is what matters in play: Cauldrons are

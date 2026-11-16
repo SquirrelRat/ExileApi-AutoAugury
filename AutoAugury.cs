@@ -47,6 +47,10 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     // area, so the count carries over from earlier areas until a boss view shows it again.
     internal int ObservedSlots { get; private set; }
 
+    // What the scores were last computed for: the panel, the weights and the tracker's generation. Null until the
+    // first read and after ForgetPanel, so the first read with the plugin enabled always scores.
+    private (int Panel, int Settings, int Tracker)? _lastScoreFingerprint;
+
     // Whether the slot-count mismatch has been logged for this area (AreaChange resets it).
     private bool _slotMismatchLogged;
 
@@ -129,14 +133,32 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
             NoteSlots(state);
             NoteOfferSize(state);
 
-            _scores = state.ChoosingFate
-                ? FateScoring.Score(state, Settings, FateScoring.OffersToComeFor(state, areaLevel, Cauldrons), slots)
-                : [];
-            _cauldronProgress = state.ChoosingFate
-                ? FateScoring.CauldronProgressOf(state, areaLevel, Cauldrons)
-                : default;
+            // The scores cost subsets and copy potentials: recompute only when the cards, the weights or the
+            // tracker changed. The guide rides the same gate; its placed cards are in the fingerprint.
+            var fingerprint = (FateScoring.FingerprintOf(state), FateScoring.SettingsFingerprint(Settings),
+                Cauldrons.Version);
+            var changed = fingerprint != _lastScoreFingerprint;
+
+            if (changed)
+                _lastScoreFingerprint = fingerprint;
+
+            if (state.ChoosingFate)
+            {
+                if (changed)
+                {
+                    _scores = FateScoring.Score(state, Settings,
+                        FateScoring.OffersToComeFor(state, areaLevel, Cauldrons), slots);
+                    _cauldronProgress = FateScoring.CauldronProgressOf(state, areaLevel, Cauldrons);
+                }
+            }
+            else
+            {
+                _scores = [];
+                _cauldronProgress = default;
+            }
+
             _guide = state.InvokingFates
-                ? InvocationAdvisor.GuideFor(state, Settings, ObservedSlots)
+                ? changed ? InvocationAdvisor.GuideFor(state, Settings, ObservedSlots) : _guide
                 : InvocationGuide.None;
         }
 
@@ -184,6 +206,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
         _panelState = FatesPanelState.Closed;
         _scores = [];
         _guide = InvocationGuide.None;
+        _lastScoreFingerprint = null;
     }
 
     /// <summary>
