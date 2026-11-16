@@ -88,11 +88,12 @@ internal static class InvocationAdvisor
     public const int DefaultSlots = 3;
 
     /// <summary>
-    /// The slots to advise for: the panel's own count when it shows slots (the boss view), else the slots last
+    /// The slots to advise for: the boss view's own count when it shows slots, else the slots last
     /// seen at a boss, else the default. The default rests on one boss dump; the panel's own count is the truth.
+    /// The choosing view's row holds the offer, not the slots, so only the invoking view's count is trusted.
     /// </summary>
     public static int SlotsFor(FatesPanelState state, int observedSlots) =>
-        state.TopRowSlots.Count > 0 ? state.TopRowSlots.Count
+        state.InvokingFates && state.TopRowSlots.Count > 0 ? state.TopRowSlots.Count
         : observedSlots > 0 ? observedSlots
         : DefaultSlots;
 

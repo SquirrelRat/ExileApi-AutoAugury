@@ -36,6 +36,19 @@ public class SlotsTests
     }
 
     [Fact]
+    public void SlotsFor_IgnoresChoosingViewSlots()
+    {
+        // The choosing row holds the offer (up to five frames), not the invocation slots.
+        var choosing = new FatesPanelState(true, FatesPanelState.ChoosingTitle, [], [],
+            [new RectangleF(0f, 0f, 10f, 10f), new RectangleF(10f, 0f, 10f, 10f),
+             new RectangleF(20f, 0f, 10f, 10f), new RectangleF(30f, 0f, 10f, 10f),
+             new RectangleF(40f, 0f, 10f, 10f)], default, default);
+
+        Assert.Equal(4, InvocationAdvisor.SlotsFor(choosing, 4));
+        Assert.Equal(InvocationAdvisor.DefaultSlots, InvocationAdvisor.SlotsFor(choosing, 0));
+    }
+
+    [Fact]
     public void SlotsFor_ReturnsDefault_WhenNothingKnown()
     {
         Assert.Equal(InvocationAdvisor.DefaultSlots, InvocationAdvisor.SlotsFor(NoSlots, 0));
