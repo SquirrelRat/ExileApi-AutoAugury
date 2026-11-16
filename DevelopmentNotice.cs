@@ -25,7 +25,7 @@ internal static class DevelopmentNotice
         "The tier of 7 Fates cannot be read (Dryad, Gravewalker, Pestilent, Sadist, Savage, Tempest, Wildfire); it " +
         "only counts when Score per tier is not 0.",
         "Hard mode rewards are in the game's data but have not been seen offered; they are taken to be Ruthless " +
-        "only, and are weighted by their family's weight.",
+        "only, and are weighted by their family's weight. Rewards > Show Ruthless-only families hides them.",
     ];
 
     public static void Draw()

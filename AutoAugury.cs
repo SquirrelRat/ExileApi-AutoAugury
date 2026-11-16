@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 using ExileCore;
@@ -235,5 +236,61 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
 
         if (display.ShowInvocationAdvice && _panelState.InvokingFates)
             FateOverlay.DrawGuide(Graphics, _guide, _panelState, display);
+
+        if (display.PreviewScores && !_panelState.Visible)
+            DrawPreview(display);
+
+        if (display.ShowStatusLine.Value)
+            DrawStatusLine(display);
+    }
+
+    /// <summary>
+    /// Three sample scores through the overlay's own drawing, with the display's palette, thickness and gap: what the
+    /// choosing overlay looks like without waiting for a Cauldron. Hidden while the Fates panel is open.
+    /// </summary>
+    private void DrawPreview(DisplaySettings display)
+    {
+        var window = Safe.Read(GameController, static g => g.Window.GetWindowRectangleTimeCache,
+            default(SharpDX.RectangleF));
+
+        if (window.Width <= 0f)
+            return;
+
+        var fates = AuguryCatalogue.Fates;
+        var crowkeeper = fates.FirstOrDefault(f => f.Id == "Crowkeeper");
+        var dryad = fates.FirstOrDefault(f => f.Id == "Dryad");
+        var y = window.Y + window.Height / 2f - 120f;
+        var cards = new[]
+        {
+            new FateCard("Crowkeeper", crowkeeper, null, new SharpDX.RectangleF(window.X + window.Width / 4f - 90f, y, 180f, 240f), [], false),
+            new FateCard("Dryad", dryad, 2, new SharpDX.RectangleF(window.X + window.Width / 2f - 90f, y, 180f, 240f), [], false),
+            new FateCard("Unknown", null, null, new SharpDX.RectangleF(window.X + window.Width * 3f / 4f - 90f, y, 180f, 240f), [], false),
+        };
+        var scores = new FateScore[]
+        {
+            new(cards[0], 42, 20, 22d, true, null, 3, 0),
+            new(cards[1], 36, 58, -22d, true, null, 3, 0),
+            new(cards[2], 5, 5, 0d, false, null, 3, 1),
+        };
+
+        FateOverlay.DrawScores(Graphics, scores, display);
+    }
+
+    /// <summary>The tracker's state at a glance, bottom left: Cauldrons tracked, slots advised for, Fates per offer.</summary>
+    private void DrawStatusLine(DisplaySettings display)
+    {
+        var window = Safe.Read(GameController, static g => g.Window.GetWindowRectangleTimeCache,
+            default(SharpDX.RectangleF));
+
+        if (window.Width <= 0f)
+            return;
+
+        var text = FateOverlay.StatusLineOf(Cauldrons.Cauldrons.Count,
+            InvocationAdvisor.SlotsFor(_panelState, ObservedSlots), Settings.Debug.FatesPerOffer.Value);
+
+        Graphics.DrawTextWithBackground(text,
+            new System.Numerics.Vector2(window.X + 8f, window.Y + window.Height - 24f),
+            Colours.FromArgb(255, 245, 245, 245), ExileCore.Shared.Enums.FontAlign.Left,
+            Colours.FromArgb(200, 0, 0, 0));
     }
 }

@@ -70,6 +70,7 @@ internal static class WeightTables
         ImGui.TextDisabled($"Showing {shown.Count} of {RewardFamilies.All.Count}");
         ImGui.SameLine();
         DrawBulkSet(settings, shown);
+        DrawPresets(settings);
         DrawRewardTable(settings, shown);
     }
 
@@ -103,6 +104,7 @@ internal static class WeightTables
             : null;
 
         var shown = RewardFamilies.All
+            .Where(f => settings.ShowHardModeFamilies.Value || !RewardFamilies.IsHardModeOnly(f.Id))
             .Where(f => category == null || f.Category == category)
             .Where(f => !_changedRewardsOnly || settings.IsChanged(f.Id))
             .Where(f => words.All(w => Mentions(f, w)));
@@ -147,6 +149,31 @@ internal static class WeightTables
 
         foreach (var family in shown)
             Save(settings.Weights, family.Id, _bulkRewardWeight, family.DefaultWeight);
+    }
+
+    /// <summary>One-click weight sets (WeightPresets); Ctrl-gated like the bulk set, since each changes many.</summary>
+    private static void DrawPresets(RewardSettings settings)
+    {
+        ImGui.SameLine();
+        ImGui.TextDisabled("Preset:");
+
+        foreach (var (id, label) in WeightPresets.All)
+        {
+            ImGui.SameLine();
+
+            var armed = ImGui.IsKeyDown(ImGuiKey.ModCtrl);
+
+            ImGui.BeginDisabled(!armed);
+            var clicked = ImGui.SmallButton($"{label}###autoauguryPreset{id}");
+            ImGui.EndDisabled();
+
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                ImGui.SetTooltip($"Sets the {label} reward weights, leaving the rest alone.\nHold Ctrl to click it.");
+
+            if (clicked && armed)
+                WeightPresets.ApplyTo(settings.Weights, id,
+                    static f => RewardFamilies.Of(f)?.DefaultWeight ?? 0);
+        }
     }
 
     private static void DrawRewardTable(RewardSettings settings, List<RewardFamily> shown)
@@ -241,35 +268,79 @@ internal static class WeightTables
             ImGui.SetTooltip($"Back to the default, {family.DefaultWeight}.");
     }
 
+    // What the Fate table shows, for this session only: not settings, so not saved.
+    private static string _fateSearch = "";
+    private static bool _changedFatesOnly;
+
     public static void DrawFateWeights(FateSettings settings)
     {
         DrawResetButton("Reset Fate weights###autoauguryResetFateWeights", settings.Weights);
 
+        ImGui.SetNextItemWidth(320f);
+        ImGui.InputTextWithHint("###autoauguryFateSearch", "search Fates, e.g. crow", ref _fateSearch, 128);
+
+        if (_fateSearch.Length > 0)
+        {
+            ImGui.SameLine();
+
+            if (ImGui.SmallButton("clear###autoauguryFateSearchClear"))
+                _fateSearch = "";
+        }
+
+        ImGui.SameLine();
+        ImGui.Checkbox("Changed only###autoauguryFateChangedOnly", ref _changedFatesOnly);
+
+        var words = _fateSearch.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var filtering = words.Length > 0 || _changedFatesOnly;
+
         foreach (var faction in AuguryCatalogue.Factions)
         {
-            if (!ImGui.TreeNode($"{faction.Name} ({faction.Id})###autoauguryFaction{faction.Id}"))
+            var fates = AuguryCatalogue.Fates
+                .Where(f => f.FactionId == faction.Id)
+                .Where(f => !_changedFatesOnly || settings.Weights.ContainsKey(f.Id))
+                .Where(f => words.All(w => f.Name.Contains(w, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(static f => f.Name)
+                .ToList();
+
+            if (fates.Count == 0)
                 continue;
 
-            var fates = AuguryCatalogue.Fates.Where(f => f.FactionId == faction.Id).OrderBy(static f => f.Name);
-
-            foreach (var fate in fates)
+            if (!filtering)
             {
-                var weight = settings.WeightOf(fate.Id);
-
-                ImGui.SetNextItemWidth(SliderWidth);
-
-                if (ImGui.SliderInt($"##autoauguryFate{fate.Id}", ref weight, LowestFateWeight, HighestFateWeight))
-                    Save(settings.Weights, fate.Id, weight, 0);
-
-                ImGui.SameLine();
-                ImGui.TextUnformatted(fate.Name);
-
-                if (ImGui.IsItemHovered())
-                    ImGui.SetTooltip(TooltipOf(fate));
+                if (!ImGui.TreeNode($"{faction.Name} ({faction.Id})###autoauguryFaction{faction.Id}"))
+                    continue;
+            }
+            else
+            {
+                ImGui.TextColored(CategoryColour, $"{faction.Name} ({faction.Id})");
             }
 
-            ImGui.TreePop();
+            foreach (var fate in fates)
+                DrawFateRow(settings, fate);
+
+            if (!filtering)
+                ImGui.TreePop();
         }
+    }
+
+    private static void DrawFateRow(FateSettings settings, AuguryFate fate)
+    {
+        var weight = settings.WeightOf(fate.Id);
+
+        ImGui.SetNextItemWidth(SliderWidth);
+
+        if (ImGui.SliderInt($"##autoauguryFate{fate.Id}", ref weight, LowestFateWeight, HighestFateWeight))
+            Save(settings.Weights, fate.Id, weight, 0);
+
+        ImGui.SameLine();
+
+        if (settings.Weights.ContainsKey(fate.Id))
+            ImGui.TextColored(ChangedColour, fate.Name);
+        else
+            ImGui.TextUnformatted(fate.Name);
+
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(TooltipOf(fate));
     }
 
     /// <summary>

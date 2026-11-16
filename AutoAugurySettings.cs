@@ -100,6 +100,15 @@ public class RewardSettings
     public CustomNode WeightsUi { get; set; }
 
     /// <summary>
+    /// Whether the table lists the Ruthless-only families (RewardFamilies.IsHardModeOnly): three rows of rewards
+    /// never seen offered. Scoring is by family either way; this only cleans the table.
+    /// </summary>
+    [Menu("Show Ruthless-only families",
+        "Lists the families whose rewards are taken to be Ruthless-only.\n" +
+        "Scoring counts their families either way.")]
+    public ToggleNode ShowHardModeFamilies { get; set; } = new(true);
+
+    /// <summary>
     /// The weights the player set, by reward family Id. A weight equal to its default is removed rather than kept, so
     /// a changed default reaches every install that never set that family. ExileCore fills this on load without
     /// replacing it, which for a dictionary sets each saved entry.
@@ -225,6 +234,40 @@ public class DisplaySettings
     /// </summary>
     [Menu("Minimap icon size")]
     public RangeNode<int> MinimapIconSize { get; set; } = new(40, 8, 128);
+
+    /// <summary>
+    /// Whether a one-line summary is drawn at the screen's bottom left while playing: Cauldrons tracked, invocation
+    /// slots and Fates modelled per offer. Off by default: it is for checking the tracker's state at a glance.
+    /// </summary>
+    [Menu("Show status line")]
+    public ToggleNode ShowStatusLine { get; set; } = new(false);
+
+    public DisplaySettings()
+    {
+        ChoosingNoteUi = new CustomNode(() => ImGui.TextDisabled(
+            "The game hides each Cauldron's offer until the previous Cauldron is picked from: " +
+            "scores cover this Cauldron only."));
+        PreviewUi = new CustomNode(() =>
+        {
+            if (ImGui.Button("Preview overlay on screen###autoauguryPreviewScores"))
+                PreviewScores = !PreviewScores;
+
+            ImGui.SameLine();
+            ImGui.TextDisabled(PreviewScores
+                ? "preview on: close the menu to see it"
+                : "draws three sample scores with your palette");
+        });
+    }
+
+    /// <summary>Not saved: whether the sample scores show (Display > Preview overlay on screen).</summary>
+    [JsonIgnore]
+    public bool PreviewScores { get; set; }
+
+    [JsonIgnore]
+    public CustomNode ChoosingNoteUi { get; set; }
+
+    [JsonIgnore]
+    public CustomNode PreviewUi { get; set; }
 }
 
 public class DebugSettings

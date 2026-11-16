@@ -40,6 +40,18 @@ internal static class RewardFamilies
 
     public static RewardFamily Of(string familyId) => familyId == null ? null : ById.GetValueOrDefault(familyId);
 
+    /// <summary>
+    /// Whether every catalogue row of the family is of the HardMode set: taken to be Ruthless-only (none has been
+    /// seen offered). The settings table can hide these on request; scoring is by family either way.
+    /// </summary>
+    public static bool IsHardModeOnly(string familyId)
+    {
+        if (familyId == null || ById.GetValueOrDefault(familyId) == null)
+            return false;
+
+        return AuguryCatalogue.Rewards.Where(r => r.Family == familyId).All(static r => r.HardMode);
+    }
+
     private static List<RewardFamily> Build()
     {
         var families = new List<RewardFamily>();

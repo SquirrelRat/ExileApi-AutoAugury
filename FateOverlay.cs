@@ -185,6 +185,10 @@ internal static class FateOverlay
     public static string PickLabel(InvocationGuide guide, InvocationPick pick) =>
         $"{pick.Order}. " + Signed(guide.GainOf(pick)) + (pick.Empowers == null ? "" : " pair");
 
+    /// <summary>The status line's text: what the tracker, the slot count and the offer model currently say.</summary>
+    public static string StatusLineOf(int tracked, int slots, int fatesPerOffer) =>
+        $"Augury: {tracked} tracked | {slots} slots | {fatesPerOffer}/offer";
+
     private static string Signed(int value) => value switch
     {
         < 0 => $"{value}",
