@@ -98,7 +98,8 @@ internal static class Dump
 
         try
         {
-            Describe(b, gc, settings, (plugin as AutoAugury)?.Cauldrons);
+            Describe(b, gc, settings, (plugin as AutoAugury)?.Cauldrons,
+                (plugin as AutoAugury)?.ObservedSlots ?? 0);
         }
         catch (Exception ex)
         {
@@ -149,7 +150,7 @@ internal static class Dump
     }
 
     private static void Describe(StringBuilder b, GameController gc, AutoAugurySettings settings,
-        CauldronTracker cauldrons)
+        CauldronTracker cauldrons, int observedSlots)
     {
         b.AppendLine($"AutoAugury (PoE1) dump - {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         b.AppendLine($"plugin enabled: {settings.Enable.Value}");
@@ -158,7 +159,7 @@ internal static class Dump
 
         b.AppendLine($"entity pattern: {pattern}{patternNote}");
 
-        DescribeFatesPanel(b, gc, settings, cauldrons);
+        DescribeFatesPanel(b, gc, settings, cauldrons, observedSlots);
         DescribeArea(b, gc);
         DescribeMechanicHandlers(b, gc);
         DescribeGameFiles(b, gc, pattern);
@@ -207,7 +208,7 @@ internal static class Dump
     /// plugin acts on: each card's name, catalogue Fate, tier and rewards with their families, copies and weights.
     /// </summary>
     private static void DescribeFatesPanel(StringBuilder b, GameController gc, AutoAugurySettings settings,
-        CauldronTracker cauldrons)
+        CauldronTracker cauldrons, int observedSlots)
     {
         b.AppendLine();
         b.AppendLine("== Fates panel, as the reader sees it");
@@ -223,6 +224,11 @@ internal static class Dump
 
         var areaLevel = Safe.Read(gc, static g => g.Area.CurrentArea.RealLevel, 0);
         var offersToCome = FateScoring.OffersToComeFor(state, areaLevel, cauldrons);
+        var slots = InvocationAdvisor.SlotsFor(state, observedSlots);
+
+        b.AppendLine($"  invocation slots: advising for {slots} " +
+                      $"(panel shows {state.TopRowSlots.Count}, last seen at a boss {observedSlots}, " +
+                      $"default {InvocationAdvisor.DefaultSlots})");
         var mapFaction = state.Offered.FirstOrDefault(static c => c.Fate != null)?.Fate.FactionId;
 
         if (state.ChoosingFate)
@@ -237,7 +243,7 @@ internal static class Dump
 
         if (state.Visible)
         {
-            foreach (var chance in CopyPotential.ChancesOf(state.Collection, InvocationAdvisor.DefaultSlots, settings,
+            foreach (var chance in CopyPotential.ChancesOf(state.Collection, slots, settings,
                          offersToCome))
             {
                 var outcomes = string.Join(", ", chance.Outcomes.Select(o =>
@@ -248,7 +254,7 @@ internal static class Dump
             }
         }
 
-        var scores = state.ChoosingFate ? FateScoring.Score(state, settings, offersToCome) : [];
+        var scores = state.ChoosingFate ? FateScoring.Score(state, settings, offersToCome, slots) : [];
         var topRow = state.InvokingFates ? "placed" : "offered";
 
         foreach (var (label, cards) in new[] { (topRow, state.Offered), ("collected", state.Collection) })

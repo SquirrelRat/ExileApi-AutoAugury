@@ -87,6 +87,15 @@ internal static class InvocationAdvisor
     /// </summary>
     public const int DefaultSlots = 3;
 
+    /// <summary>
+    /// The slots to advise for: the panel's own count when it shows slots (the boss view), else the slots last
+    /// seen at a boss, else the default. The default rests on one boss dump; the panel's own count is the truth.
+    /// </summary>
+    public static int SlotsFor(FatesPanelState state, int observedSlots) =>
+        state.TopRowSlots.Count > 0 ? state.TopRowSlots.Count
+        : observedSlots > 0 ? observedSlots
+        : DefaultSlots;
+
     /// <summary>The most cards tried, so the subsets stay few; a collection has never come near it.</summary>
     private const int MostCards = 16;
 
@@ -153,9 +162,9 @@ internal static class InvocationAdvisor
     /// The guide for the boss's view: the advice around what is placed, for as many slots as the panel shows; the pick
     /// to place now; what each pick adds in order; and what the placed cards cost against the best invocation.
     /// </summary>
-    public static InvocationGuide GuideFor(FatesPanelState state, AutoAugurySettings settings)
+    public static InvocationGuide GuideFor(FatesPanelState state, AutoAugurySettings settings, int observedSlots = 0)
     {
-        var slots = state.TopRowSlots.Count > 0 ? state.TopRowSlots.Count : DefaultSlots;
+        var slots = SlotsFor(state, observedSlots);
         var candidates = CandidatesOf(state, settings);
         var advice = Best(candidates.Cards, slots, settings, candidates.Placed);
         var cost = 0;

@@ -36,6 +36,8 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Tests build as their own project, with the game assemblies copied local for the test host. -->
+    <Compile Remove="Tests\**" />
     <!-- For [JsonIgnore] on settings nodes that have nothing to save; the HUD ships this assembly. -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <!-- ExileApi draws and saves with SharpDX's RectangleF and Color; the HUD ships this assembly. -->

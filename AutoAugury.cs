@@ -1,8 +1,11 @@
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 using ExileCore;
 using ExileCore.Shared.Nodes;
+
+[assembly: InternalsVisibleTo("AutoAugury.Tests")]
 
 namespace AutoAugury;
 
@@ -38,6 +41,13 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
 
     /// <summary>The area's Cauldrons, for the offers still to come (the copy potential). Read by Dump.</summary>
     internal CauldronTracker Cauldrons { get; } = new();
+
+    // The invocation slots last seen at a boss's panel: the choosing view comes before any boss view in an
+    // area, so the count carries over from earlier areas until a boss view shows it again.
+    internal int ObservedSlots { get; private set; }
+
+    // Whether the slot-count mismatch has been logged for this area (AreaChange resets it).
+    private bool _slotMismatchLogged;
 
     // Published whole by the Tick, drawn by Render.
     private FatesPanelState _panelState = FatesPanelState.Closed;
@@ -111,17 +121,40 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
 
             _panelState = state;
             var areaLevel = Safe.Read(GameController, static g => g.Area.CurrentArea.RealLevel, 0);
+            var slots = InvocationAdvisor.SlotsFor(state, ObservedSlots);
+            NoteSlots(state);
 
             _scores = state.ChoosingFate
-                ? FateScoring.Score(state, Settings, FateScoring.OffersToComeFor(state, areaLevel, Cauldrons))
+                ? FateScoring.Score(state, Settings, FateScoring.OffersToComeFor(state, areaLevel, Cauldrons), slots)
                 : [];
             _cauldronProgress = state.ChoosingFate
                 ? FateScoring.CauldronProgressOf(state, areaLevel, Cauldrons)
                 : default;
-            _guide = state.InvokingFates ? InvocationAdvisor.GuideFor(state, Settings) : InvocationGuide.None;
+            _guide = state.InvokingFates
+                ? InvocationAdvisor.GuideFor(state, Settings, ObservedSlots)
+                : InvocationGuide.None;
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Remembers the boss view's slot count, and logs once per area when it is not the assumed one: atlas passives
+    /// or anything else may add slots, and the advice is computed for the count seen.
+    /// </summary>
+    private void NoteSlots(FatesPanelState state)
+    {
+        if (!state.InvokingFates || state.TopRowSlots.Count <= 0)
+            return;
+
+        ObservedSlots = state.TopRowSlots.Count;
+
+        if (ObservedSlots == InvocationAdvisor.DefaultSlots || _slotMismatchLogged)
+            return;
+
+        _slotMismatchLogged = true;
+        DebugWindow.LogMsg("[AutoAugury] The boss panel shows " + ObservedSlots + " invocation slots, not the " +
+            "assumed " + InvocationAdvisor.DefaultSlots + "; advising for " + ObservedSlots + ".", 10f);
     }
 
     private void ForgetPanel()
@@ -149,6 +182,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     public override void AreaChange(AreaInstance area)
     {
         _fatesPanel.Forget();
+        _slotMismatchLogged = false;
         Cauldrons.EnterArea(Safe.Read(area, static a => a?.Hash ?? 0u, 0u),
             Safe.Read(area, static a => a != null && (a.IsTown || a.IsHideout), false));
         ForgetPanel();

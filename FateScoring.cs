@@ -84,10 +84,9 @@ internal static class FateScoring
     }
 
     public static List<FateScore> Score(FatesPanelState state, AutoAugurySettings settings,
-        Func<string, int> offersToCome)
+        Func<string, int> offersToCome, int slots)
     {
         var scores = new List<FateScore>();
-        var slots = InvocationAdvisor.DefaultSlots;
         var bestWithout = InvocationAdvisor.Best(state.Collection, slots, settings).Total;
         var potentialWithout = CopyPotential.Of(state.Collection, slots, settings, offersToCome);
 
