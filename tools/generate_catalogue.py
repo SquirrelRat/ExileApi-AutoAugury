@@ -126,6 +126,13 @@ def main():
     w('/// </summary>')
     w('internal static class AuguryCatalogue')
     w('{')
+    w('')
+    w('    /// <summary>When the client\'s tables were exported: regenerate after a patch that changes them.</summary>')
+    w('    public const string ExportedAt = %s;' % literal(export.get('exported', '?')))
+    w('')
+    w('    /// <summary>The dat-schema the export was decoded with.</summary>')
+    w('    public const string Schema = %s;' % literal(export.get('schema', '?')))
+    w('')
 
     w('    public static readonly AuguryFaction[] Factions =')
     w('    [')

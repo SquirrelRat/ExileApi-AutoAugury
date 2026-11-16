@@ -54,6 +54,12 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     // Whether the slot-count mismatch has been logged for this area (AreaChange resets it).
     private bool _slotMismatchLogged;
 
+    // Empty open-panel reads in a row; the warning fires once the panel has read empty for about five seconds.
+    private int _emptyPanelReads;
+
+    /// <summary>100 ms reads after which an open-but-empty panel is reported (a patch may have moved it).</summary>
+    private const int EmptyPanelWarningAfter = 50;
+
     // Whether an unexpected offer size has been logged for this area (AreaChange resets it).
     private bool _offerSizeLogged;
 
@@ -132,6 +138,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
             var slots = InvocationAdvisor.SlotsFor(state, ObservedSlots);
             NoteSlots(state);
             NoteOfferSize(state);
+            NoteEmptyPanel(state);
 
             // The scores cost subsets and copy potentials: recompute only when the cards, the weights or the
             // tracker changed. The guide rides the same gate; its placed cards are in the fingerprint.
@@ -201,12 +208,30 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
             Settings.Debug.FatesPerOffer.Value + "; set Debug > Fates per offer to match.", 10f);
     }
 
+    /// <summary>
+    /// Counts open-but-empty panel reads: the panel always shows card frames, so repeats mean the client's layout
+    /// moved and the reader's indices no longer land. Warns once per stretch, pointing at the dump.
+    /// </summary>
+    private void NoteEmptyPanel(FatesPanelState state)
+    {
+        if (!FatesPanel.ReadsEmpty(state))
+        {
+            _emptyPanelReads = 0;
+            return;
+        }
+
+        if (++_emptyPanelReads == EmptyPanelWarningAfter)
+            DebugWindow.LogMsg("[AutoAugury] The Fates panel is open but no cards read. A patch may have moved " +
+                "the panel; take Debug > Write a dump now and check the element tree.", 10f);
+    }
+
     private void ForgetPanel()
     {
         _panelState = FatesPanelState.Closed;
         _scores = [];
         _guide = InvocationGuide.None;
         _lastScoreFingerprint = null;
+        _emptyPanelReads = 0;
     }
 
     /// <summary>

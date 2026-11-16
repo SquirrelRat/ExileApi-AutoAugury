@@ -154,6 +154,7 @@ internal static class Dump
     {
         b.AppendLine($"AutoAugury (PoE1) dump - {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         b.AppendLine($"plugin enabled: {settings.Enable.Value}");
+        b.AppendLine($"catalogue: tables exported {AuguryCatalogue.ExportedAt}, decoded by {AuguryCatalogue.Schema}");
 
         var pattern = EntityPatternOf(settings, out var patternNote);
 

@@ -26,6 +26,8 @@ internal static class DevelopmentNotice
         "only counts when Score per tier is not 0.",
         "Hard mode rewards are in the game's data but have not been seen offered; they are taken to be Ruthless " +
         "only, and are weighted by their family's weight. Rewards > Show Ruthless-only families hides them.",
+        "Tables exported " + AuguryCatalogue.ExportedAt + " (" + AuguryCatalogue.Schema + "): regenerate the " +
+        "catalogue after a patch that changes the Augury tables.",
     ];
 
     public static void Draw()

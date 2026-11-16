@@ -18,6 +18,12 @@ namespace AutoAugury;
 /// </summary>
 internal static class AuguryCatalogue
 {
+    /// <summary>When the client's tables were exported: regenerate after a patch that changes them.</summary>
+    public const string ExportedAt = "2026-11-14 03:20:11";
+
+    /// <summary>The dat-schema the export was decoded with.</summary>
+    public const string Schema = "poe-tool-dev/dat-schema dat-schema/3_30_Covens_of_Umbra.gql, 2026-11-13";
+
     public static readonly AuguryFaction[] Factions =
     [
         new("Savage", "Wickerlight", "Art/2DArt/UIImages/InGame/Augury/FactionIconWickerLight"),

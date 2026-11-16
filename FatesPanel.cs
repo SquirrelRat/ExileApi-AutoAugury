@@ -157,6 +157,14 @@ internal sealed class FatesPanel
     public static bool IsFatesPanel(Element panel) =>
         TitleOf(panel) is FatesPanelState.ChoosingTitle or FatesPanelState.InvokingTitle;
 
+    /// <summary>
+    /// Whether an open panel read nothing: the panel always shows card frames, so an open read with no slots and no
+    /// cards means the client's layout moved and the indices no longer land. The Tick warns on repeats of this.
+    /// </summary>
+    public static bool ReadsEmpty(FatesPanelState state) =>
+        state.Visible && state.TopRowSlots.Count == 0 && state.Offered.Count == 0 &&
+        state.Collection.Count == 0;
+
     /// <summary>The text of child 2's child 3, where the Fates panel has its title; null when there is none.</summary>
     private static string TitleOf(Element panel) => Safe.Read(ChildAt(panel, 2, 3), static t => t?.Text, null);
 
