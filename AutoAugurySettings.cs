@@ -277,4 +277,14 @@ public class DebugSettings
         "Also walks hidden elements inside open panels.\n" +
         "Closed panels get one line each either way.")]
     public ToggleNode DumpHiddenElements { get; set; } = new(true);
+
+    [JsonIgnore]
+    public CustomNode OfferModelGroup { get; set; } = Section.Of("Offer model");
+
+    /// <summary>
+    /// How many Fates one Cauldron offer shows, for the copy potential's per-offer chance. Every offer seen showed
+    /// three (2026-11-14); when offers show another number, set it here rather than re-scoring on a wrong model.
+    /// </summary>
+    [Menu("Fates per offer")]
+    public RangeNode<int> FatesPerOffer { get; set; } = new(CopyPotential.FatesPerOffer, 1, 5);
 }

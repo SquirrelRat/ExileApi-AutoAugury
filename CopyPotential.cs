@@ -29,7 +29,7 @@ namespace AutoAugury;
 /// </summary>
 internal static class CopyPotential
 {
-    /// <summary>Fates per offer: every offer seen showed three (2026-11-14), of five card slots.</summary>
+    /// <summary>Fates per offer when nothing overrides it: every offer seen showed three (2026-11-14).</summary>
     public const int FatesPerOffer = 3;
 
     /// <summary>The most copies of one Fate counted: two, as a third copy adds nothing (FateValues).</summary>
@@ -45,12 +45,14 @@ internal static class CopyPotential
         public double AnyChance => Outcomes.Sum(static o => o.Chance);
     }
 
-    /// <summary>The chance one offer of its faction shows a given Fate: 3 in the faction's number of Fates.</summary>
-    public static double PerOfferChance(AuguryFate fate)
+    /// <summary>The chance one offer of its faction shows a given Fate: the offer's Fates in the faction's number.</summary>
+    public static double PerOfferChance(AuguryFate fate, int fatesPerOffer)
     {
         var factionSize = fate == null ? 0 : AuguryCatalogue.Fates.Count(f => f.FactionId == fate.FactionId);
 
-        return factionSize <= 0 ? 0d : Math.Min(1d, FatesPerOffer / (double)factionSize);
+        return factionSize <= 0 || fatesPerOffer <= 0
+            ? 0d
+            : Math.Min(1d, fatesPerOffer / (double)factionSize);
     }
 
     /// <summary>Each Fate held fewer than MostCopies times, with the copies it could gain and their chances.</summary>
@@ -69,7 +71,7 @@ internal static class CopyPotential
             if (held >= MostCopies || offers <= 0)
                 continue;
 
-            var perOffer = PerOfferChance(card.Fate);
+            var perOffer = PerOfferChance(card.Fate, settings.Debug.FatesPerOffer.Value);
             var most = Math.Min(MostCopies - held, offers);
             var outcomes = new List<CopyOutcome>();
 

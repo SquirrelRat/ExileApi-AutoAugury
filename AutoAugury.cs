@@ -49,6 +49,9 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     // Whether the slot-count mismatch has been logged for this area (AreaChange resets it).
     private bool _slotMismatchLogged;
 
+    // Whether an unexpected offer size has been logged for this area (AreaChange resets it).
+    private bool _offerSizeLogged;
+
     // Published whole by the Tick, drawn by Render.
     private FatesPanelState _panelState = FatesPanelState.Closed;
     private IReadOnlyList<FateScore> _scores = [];
@@ -123,6 +126,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
             var areaLevel = Safe.Read(GameController, static g => g.Area.CurrentArea.RealLevel, 0);
             var slots = InvocationAdvisor.SlotsFor(state, ObservedSlots);
             NoteSlots(state);
+            NoteOfferSize(state);
 
             _scores = state.ChoosingFate
                 ? FateScoring.Score(state, Settings, FateScoring.OffersToComeFor(state, areaLevel, Cauldrons), slots)
@@ -157,6 +161,23 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
             "assumed " + InvocationAdvisor.DefaultSlots + "; advising for " + ObservedSlots + ".", 10f);
     }
 
+    /// <summary>
+    /// Logs once per area when offers show another number of Fates than the copy potential models: the model is an
+    /// override away (Debug > Fates per offer), and a wrong one quietly skews every potential weight.
+    /// </summary>
+    private void NoteOfferSize(FatesPanelState state)
+    {
+        if (!state.ChoosingFate || state.Offered.Count <= 0 || _offerSizeLogged)
+            return;
+
+        if (state.Offered.Count == Settings.Debug.FatesPerOffer.Value)
+            return;
+
+        _offerSizeLogged = true;
+        DebugWindow.LogMsg("[AutoAugury] Offers show " + state.Offered.Count + " Fates, not the modelled " +
+            Settings.Debug.FatesPerOffer.Value + "; set Debug > Fates per offer to match.", 10f);
+    }
+
     private void ForgetPanel()
     {
         _panelState = FatesPanelState.Closed;
@@ -183,6 +204,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     {
         _fatesPanel.Forget();
         _slotMismatchLogged = false;
+        _offerSizeLogged = false;
         Cauldrons.EnterArea(Safe.Read(area, static a => a?.Hash ?? 0u, 0u),
             Safe.Read(area, static a => a != null && (a.IsTown || a.IsHideout), false));
         ForgetPanel();
