@@ -61,6 +61,18 @@ internal static class AuguryCatalogueLookup
     }
 
     /// <summary>
+    /// Whether the Fate's tiers read differently: the tier is found by matching the card's full text, so a Fate
+    /// whose tiers all read the same (Dryad and six more) never has a known tier. Used for the overlay's tier badge.
+    /// </summary>
+    public static bool HasDistinctTiers(AuguryFate fate)
+    {
+        if (fate == null)
+            return false;
+
+        return fate.Tiers.Select(t => Collapsed(t.Body)).Distinct().Count() > 1;
+    }
+
+    /// <summary>
     /// How many copies a reward needs, from the note the panel adds to it: "invoke two copies of it" is 2, "three
     /// copies" 3, no note 1. Seen: the two-copy note on rewards of tier 2 in the table, the three-copy note on
     /// CurrencyOpulent1, of tier 3 (2026-11-14).

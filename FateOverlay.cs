@@ -36,6 +36,25 @@ internal static class FateOverlay
     private static readonly Color TextColour = Colours.FromArgb(255, 245, 245, 245);
     private static readonly Color Background = Colours.FromArgb(200, 0, 0, 0);
 
+    /// <summary>One overlay colour set: the best pick, the other picks, picks scoring below zero, empowering copies.</summary>
+    internal readonly record struct OverlayPalette(Color Best, Color Other, Color Negative, Color Empower);
+
+    /// <summary>The standard set: the colours above.</summary>
+    private static readonly OverlayPalette StandardPalette = new(BestColour, OtherColour, NegativeColour, EmpowerColour);
+
+    /// <summary>
+    /// Okabe-Ito's colourblind-safe set, for Display > High-contrast overlay palette: green, orange and vermillion
+    /// stay apart for the common colour visions, with sky blue for empowering copies.
+    /// </summary>
+    private static readonly OverlayPalette SafePalette = new(
+        Colours.FromArgb(255, 0, 158, 115),
+        Colours.FromArgb(255, 230, 159, 0),
+        Colours.FromArgb(255, 213, 94, 0),
+        Colours.FromArgb(255, 86, 180, 233));
+
+    /// <summary>The overlay's colour set: the colourblind-safe one on request, else the standard one.</summary>
+    public static OverlayPalette PaletteFor(bool highContrast) => highContrast ? SafePalette : StandardPalette;
+
     /// <summary>The tooltip on a score label with its parts, naming them in order.</summary>
     private const string ScoreWithPartsHelp = "Total weight (Weight now + Potential weight)";
 
@@ -59,6 +78,9 @@ internal static class FateOverlay
         if (scores.Count == 0)
             return;
 
+        var palette = PaletteFor(display.HighContrastPalette.Value);
+        var thickness = display.FrameThickness.Value;
+        var gap = display.ScoreLineGap.Value;
         var best = scores.Max(static s => s.Value);
         var lineHeight = LineHeightOf(graphics);
         var mouse = ImGui.GetMousePos();
@@ -72,13 +94,13 @@ internal static class FateOverlay
                 continue;
 
             var isBest = score.Value >= best - SameValue;
-            var colour = isBest ? BestColour : score.Total < 0 ? NegativeColour : OtherColour;
+            var colour = isBest ? palette.Best : score.Total < 0 ? palette.Negative : palette.Other;
 
             if (isBest)
-                graphics.DrawFrame(rect, BestColour, 3);
+                graphics.DrawFrame(rect, palette.Best, thickness);
 
             var label = DrawAbove(graphics, rect, 1, lineHeight, ScoreLabelOf(score, display.ShowScoreBreakdown),
-                colour);
+                colour, gap);
 
             if (mouse.X >= label.Left && mouse.X <= label.Right && mouse.Y >= label.Top && mouse.Y <= label.Bottom)
                 hovered = score;
@@ -92,30 +114,32 @@ internal static class FateOverlay
     }
 
     /// <summary>
-    /// Frames only the card to place next (InvocationGuide.Next: the remaining card that adds the most while the order
-    /// is free, the advice's next while a pair's first copy is still to place), green or, for a copy that empowers an
-    /// earlier one, purple, with what placing it adds above it ("+15", "+40 pair"). Framing every card while the order
-    /// was free was tried and dropped as more confusing. Writes one line to the left of the confirm button:
-    /// what each pick adds in placing order, as placed so far ("weights: 15 + 15 + 5 = 35"), with "(any order)" when no
-    /// two picks are copies of one Fate. When the placed cards allow less than the best invocation, a red line under it
-    /// says how much and why: "wrong order" when a pair's copies went in the wrong way round, "not the best Fates" when
-    /// a placed card is not among them.
+    /// Every pick still to place in placing order, the next brightest, each badged with its order: "1. +15",
+    /// "2. +40 pair". Placed picks are not framed: their cards read greyed in the collection row already, and the
+    /// weights line below counts them. One line is written to the left of the confirm button: what each pick adds
+    /// in placing order, as placed so far ("weights: 15 + 15 + 5 = 35"), with "(any order)" when no two picks are
+    /// copies of one Fate. When the placed cards allow less than the best invocation, a red line under it
+    /// says how much and why: "wrong order" when a pair's copies went in the wrong way round, "not the best Fates"
+    /// when a placed card is not among them.
     /// </summary>
-    public static void DrawGuide(Graphics graphics, InvocationGuide guide, FatesPanelState state)
+    public static void DrawGuide(Graphics graphics, InvocationGuide guide, FatesPanelState state,
+        DisplaySettings display)
     {
         var lineHeight = LineHeightOf(graphics);
-        var framed = guide.Next == null ? [] : new[] { guide.Next };
+        var palette = PaletteFor(display.HighContrastPalette.Value);
+        var thickness = display.FrameThickness.Value;
+        var gap = display.ScoreLineGap.Value;
 
-        foreach (var pick in framed)
+        foreach (var pick in guide.Remaining)
         {
             if (pick.Card.Rect.Width <= 0f)
                 continue;
 
-            var colour = pick.Empowers == null ? BestColour : EmpowerColour;
-            var label = Signed(guide.GainOf(pick)) + (pick.Empowers == null ? "" : " pair");
+            var isNext = ReferenceEquals(pick, guide.Next);
+            var colour = isNext ? palette.Best : pick.Empowers == null ? palette.Other : palette.Empower;
 
-            graphics.DrawFrame(pick.Card.Rect, colour, 3);
-            DrawAbove(graphics, pick.Card.Rect, 1, lineHeight, label, colour);
+            graphics.DrawFrame(pick.Card.Rect, colour, isNext ? thickness : Math.Max(1, thickness - 1));
+            DrawAbove(graphics, pick.Card.Rect, 1, lineHeight, PickLabel(guide, pick), colour, gap);
         }
 
         var weights = guide.Gains.Count == 0
@@ -152,10 +176,14 @@ internal static class FateOverlay
 
         if (warning != null)
         {
-            graphics.DrawTextWithBackground(warning, at with { Y = at.Y + lineHeight }, NegativeColour, align,
-                Background);
+            graphics.DrawTextWithBackground(warning, at with { Y = at.Y + lineHeight },
+                PaletteFor(display.HighContrastPalette.Value).Negative, align, Background);
         }
     }
+
+    /// <summary>One remaining pick's label: its placing order, what it adds, and whether it empowers an earlier copy.</summary>
+    public static string PickLabel(InvocationGuide guide, InvocationPick pick) =>
+        $"{pick.Order}. " + Signed(guide.GainOf(pick)) + (pick.Empowers == null ? "" : " pair");
 
     private static string Signed(int value) => value switch
     {
@@ -167,20 +195,22 @@ internal static class FateOverlay
     /// <summary>
     /// A score as the overlay writes it, in the boss view's "15 + 15 + 5" form: "24 (5 + 19)", the total, then what
     /// the card adds to the best invocation now plus the change in copy potential (CopyPotential); "36 (58 - 22)" when
-    /// the potential falls; the total alone without its parts. The potential written is the total less the gain, so
-    /// the parts add up to the rounded total. " ?" follows when a reward on the card matched no catalogue reward, or
-    /// its name no Fate.
+    /// the potential falls; the total alone without its parts. " ?" follows when a reward on the card matched no
+    /// catalogue reward, or its name no Fate; "tier ?" when the card's tier cannot be read but the Fate has tiers.
     /// </summary>
     public static string ScoreLabelOf(FateScore score, bool withParts)
     {
         var uncertain = score.UnknownRewards > 0 || score.Card.Fate == null ? " ?" : "";
+        var tierUnknown = score.Card is { Fate: not null, Tier: null } &&
+            AuguryCatalogueLookup.HasDistinctTiers(score.Card.Fate) ? " tier ?" : "";
 
         if (!withParts)
-            return $"{score.Total}{uncertain}";
+            return $"{score.Total}{uncertain}{tierUnknown}";
 
         var potential = score.Total - score.Gain;
 
-        return $"{score.Total} ({score.Gain} {(potential < 0 ? "-" : "+")} {Math.Abs(potential)}){uncertain}";
+        return $"{score.Total} ({score.Gain} {(potential < 0 ? "-" : "+")} {Math.Abs(potential)})" +
+            $"{uncertain}{tierUnknown}";
     }
 
     /// <summary>
@@ -205,13 +235,13 @@ internal static class FateOverlay
     private static float LineHeightOf(Graphics graphics) => graphics.MeasureText("Ag").Y + 2f;
 
     /// <summary>
-    /// A centred line of text above a card, line 1 just above it, line 2 above that. Returns the text's rectangle, by
-    /// MeasureText, for hover tests.
+    /// A centred line of text above a card, line 1 just above it, line 2 above that, with the display's gap between
+    /// the card and the first line. Returns the text's rectangle, by MeasureText, for hover tests.
     /// </summary>
     private static RectangleF DrawAbove(Graphics graphics, RectangleF rect, int line, float lineHeight, string text,
-        Color colour)
+        Color colour, float gap)
     {
-        var centre = new Vector2(rect.X + rect.Width / 2f, rect.Y - line * lineHeight - 2f);
+        var centre = new Vector2(rect.X + rect.Width / 2f, rect.Y - line * lineHeight - gap);
         var size = graphics.MeasureText(text);
 
         graphics.DrawTextWithBackground(text, centre, colour, FontAlign.Center, Background);

@@ -186,6 +186,32 @@ public class DisplaySettings
     public ToggleNode ShowInvocationAdvice { get; set; } = new(true);
 
     /// <summary>
+    /// Whether the overlay uses the colourblind-safe set (Display > High-contrast overlay palette): Okabe-Ito green,
+    /// orange and vermillion instead of green, yellow and red, with sky blue for empowering copies. The order badges
+    /// say the picks apart either way.
+    /// </summary>
+    [Menu("High-contrast overlay palette")]
+    public ToggleNode HighContrastPalette { get; set; } = new(false);
+
+    /// <summary>
+    /// The overlay frames' thickness, in pixels; the next pick to place gets the full thickness, the later picks one
+    /// less (never below one).
+    /// </summary>
+    [Menu("Frame thickness")]
+    public RangeNode<int> FrameThickness { get; set; } = new(3, 1, 6);
+
+    /// <summary>The gap between a card and the score label above it, in pixels.</summary>
+    [Menu("Score line gap")]
+    public RangeNode<int> ScoreLineGap { get; set; } = new(2, 0, 30);
+
+    /// <summary>
+    /// Whether the large map's Cauldron icons mark the Cauldron whose choice waits: a frame around its icon, so the
+    /// owed Cauldron stands out from the ones still to run.
+    /// </summary>
+    [Menu("Mark owed Cauldron icon")]
+    public ToggleNode MarkOwedIcon { get; set; } = new(true);
+
+    /// <summary>
     /// Whether a large icon is drawn on the large map over each Cauldron not yet picked from, kept where the Cauldron
     /// was last seen once it is out of range: the game's Cauldron minimap icon, from the plugin's textures folder. See
     /// CauldronMapIcons.

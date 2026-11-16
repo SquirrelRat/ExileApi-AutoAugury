@@ -49,6 +49,9 @@ internal static class CauldronMapIcons
 
     private static bool _iconLoaded;
 
+    /// <summary>The owed Cauldron's frame: the overlay's yellow for the other picks.</summary>
+    private static readonly Color OwedColour = Colours.FromArgb(255, 255, 210, 80);
+
     /// <summary>One Cauldron as the last frame placed it: its map point, or why it was not drawn.</summary>
     private readonly record struct Placement(uint Id, CauldronStage Stage, Vector2? Grid, Vector2? Point,
         string Outcome);
@@ -62,8 +65,9 @@ internal static class CauldronMapIcons
 
     /// <param name="iconSize">The icon's side in pixels (Display > Minimap icon size).</param>
     /// <param name="fatesPanelOpen">Whether the last read found the Fates panel open (FatesPanelState.Visible).</param>
+    /// <param name="markOwed">Whether to frame the icon of the Cauldron whose choice waits (Display > Mark owed Cauldron icon).</param>
     public static void Draw(Graphics graphics, GameController gc, IReadOnlyList<TrackedCauldron> cauldrons,
-        int iconSize, bool fatesPanelOpen)
+        int iconSize, bool fatesPanelOpen, bool markOwed)
     {
         _lastFrameAt = DateTime.Now;
         _lastCauldronCount = cauldrons.Count;
@@ -130,6 +134,9 @@ internal static class CauldronMapIcons
                     graphics.DrawImage(IconTexture, rect, Color.White);
                 else
                     graphics.DrawImage(IconAtlasTexture, rect, fallbackUv, Color.White);
+
+                if (markOwed && cauldron.Stage == CauldronStage.Owed)
+                    graphics.DrawFrame(rect, OwedColour, 2);
 
                 LastPlacements.Add(new Placement(cauldron.Id, cauldron.Stage, grid, p, "drawn"));
             }

@@ -223,7 +223,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
         // First, so the panel's marks go over the large map's icons.
         if (display.DrawLargerMinimapIcon)
             CauldronMapIcons.Draw(Graphics, GameController, Cauldrons.Cauldrons, display.MinimapIconSize.Value,
-                _panelState.Visible);
+                _panelState.Visible, display.MarkOwedIcon.Value);
 
         if (display.ShowScores)
         {
@@ -234,6 +234,6 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
         }
 
         if (display.ShowInvocationAdvice && _panelState.InvokingFates)
-            FateOverlay.DrawGuide(Graphics, _guide, _panelState);
+            FateOverlay.DrawGuide(Graphics, _guide, _panelState, display);
     }
 }
