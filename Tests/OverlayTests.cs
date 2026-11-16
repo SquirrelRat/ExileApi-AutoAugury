@@ -34,6 +34,20 @@ public class OverlayTests
     }
 
     [Fact]
+    public void NextBannerOf_NamesPickWithProgress()
+    {
+        var guide = PairGuide(out _, out _);
+
+        Assert.Equal("NEXT: place A - 2 of 2 (+15 pair)", FateOverlay.NextBannerOf(guide));
+    }
+
+    [Fact]
+    public void NextBannerOf_IsNullWhenNothingLeft()
+    {
+        Assert.Null(FateOverlay.NextBannerOf(InvocationGuide.None));
+    }
+
+    [Fact]
     public void PaletteFor_OffersColourblindSafeSet()
     {
         var standard = FateOverlay.PaletteFor(false);

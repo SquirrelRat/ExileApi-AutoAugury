@@ -36,6 +36,9 @@ internal static class FateOverlay
     private static readonly Color TextColour = Colours.FromArgb(255, 245, 245, 245);
     private static readonly Color Background = Colours.FromArgb(200, 0, 0, 0);
 
+    /// <summary>What dims the picks after the next: translucent black drawn over the card.</summary>
+    private static readonly Color DimColour = Colours.FromArgb(140, 0, 0, 0);
+
     /// <summary>One overlay colour set: the best pick, the other picks, picks scoring below zero, empowering copies.</summary>
     internal readonly record struct OverlayPalette(Color Best, Color Other, Color Negative, Color Empower);
 
@@ -114,13 +117,14 @@ internal static class FateOverlay
     }
 
     /// <summary>
-    /// Every pick still to place in placing order, the next brightest, each badged with its order: "1. +15",
-    /// "2. +40 pair". Placed picks are not framed: their cards read greyed in the collection row already, and the
-    /// weights line below counts them. One line is written to the left of the confirm button: what each pick adds
-    /// in placing order, as placed so far ("weights: 15 + 15 + 5 = 35"), with "(any order)" when no two picks are
-    /// copies of one Fate. When the placed cards allow less than the best invocation, a red line under it
-    /// says how much and why: "wrong order" when a pair's copies went in the wrong way round, "not the best Fates"
-    /// when a placed card is not among them.
+    /// One decision: the card to place now gets the frame and its order badge ("2. +40 pair"); the later picks get
+    /// a thin frame and are dimmed, so the eye lands on the next click. Placed picks are not framed: their cards
+    /// read greyed in the collection row already, and the weights line below counts them. The banner names the next
+    /// pick with its progress ("NEXT: place Houndmaster - 2 of 3 (+40 pair)"), written to the left of the confirm
+    /// button with what each pick adds in placing order under it ("weights: 15 + 15 + 5 = 35", "(any order)" when no
+    /// two picks are copies of one Fate). When the placed cards allow less than the best invocation, a red line
+    /// under it says how much and why: "wrong order" when a pair's copies went in the wrong way round, "not the best
+    /// Fates" when a placed card is not among them.
     /// </summary>
     public static void DrawGuide(Graphics graphics, InvocationGuide guide, FatesPanelState state,
         DisplaySettings display)
@@ -135,11 +139,18 @@ internal static class FateOverlay
             if (pick.Card.Rect.Width <= 0f)
                 continue;
 
-            var isNext = ReferenceEquals(pick, guide.Next);
-            var colour = isNext ? palette.Best : pick.Empowers == null ? palette.Other : palette.Empower;
+            if (ReferenceEquals(pick, guide.Next))
+            {
+                graphics.DrawFrame(pick.Card.Rect, palette.Best, thickness);
+                DrawAbove(graphics, pick.Card.Rect, 1, lineHeight, PickLabel(guide, pick), palette.Best, gap);
+            }
+            else
+            {
+                var colour = pick.Empowers == null ? palette.Other : palette.Empower;
 
-            graphics.DrawFrame(pick.Card.Rect, colour, isNext ? thickness : Math.Max(1, thickness - 1));
-            DrawAbove(graphics, pick.Card.Rect, 1, lineHeight, PickLabel(guide, pick), colour, gap);
+                graphics.DrawFrame(pick.Card.Rect, colour, 1);
+                graphics.DrawBox(pick.Card.Rect, DimColour);
+            }
         }
 
         var weights = guide.Gains.Count == 0
@@ -172,18 +183,38 @@ internal static class FateOverlay
         else
             return;
 
-        graphics.DrawTextWithBackground(weights, at, TextColour, align, Background);
+        var banner = NextBannerOf(guide);
+
+        graphics.DrawTextWithBackground(banner ?? weights, at, TextColour, align, Background);
+
+        var under = at.Y + lineHeight;
+
+        if (banner != null)
+        {
+            graphics.DrawTextWithBackground(weights, at with { Y = under }, TextColour, align, Background);
+            under += lineHeight;
+        }
 
         if (warning != null)
         {
-            graphics.DrawTextWithBackground(warning, at with { Y = at.Y + lineHeight },
+            graphics.DrawTextWithBackground(warning, at with { Y = under },
                 PaletteFor(display.HighContrastPalette.Value).Negative, align, Background);
         }
     }
 
+    /// <summary>The banner naming the card to place now with its progress, or null when all are placed.</summary>
+    public static string NextBannerOf(InvocationGuide guide) =>
+        guide.Next == null
+            ? null
+            : $"NEXT: place {guide.Next.Card.Name} - {guide.Next.Order} of {guide.Advice.Picks.Count} " +
+              $"({GainLabel(guide, guide.Next)})";
+
     /// <summary>One remaining pick's label: its placing order, what it adds, and whether it empowers an earlier copy.</summary>
     public static string PickLabel(InvocationGuide guide, InvocationPick pick) =>
-        $"{pick.Order}. " + Signed(guide.GainOf(pick)) + (pick.Empowers == null ? "" : " pair");
+        $"{pick.Order}. " + GainLabel(guide, pick);
+
+    private static string GainLabel(InvocationGuide guide, InvocationPick pick) =>
+        Signed(guide.GainOf(pick)) + (pick.Empowers == null ? "" : " pair");
 
     /// <summary>The status line's text: what the tracker, the slot count and the offer model currently say.</summary>
     public static string StatusLineOf(int tracked, int slots, int fatesPerOffer) =>
