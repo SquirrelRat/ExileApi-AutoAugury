@@ -136,6 +136,12 @@ internal sealed class CauldronTracker
     /// <summary>The area instance's hash; 0 when unread, in a town or hideout, or before any area change.</summary>
     private uint _areaHash;
 
+    /// <summary>The current area's level, noted by every Update; the finished area is recorded under it.</summary>
+    private int _areaLevel;
+
+    /// <summary>Cauldron totals of finished areas: the most seen in one area, by area level.</summary>
+    private readonly Dictionary<int, int> _observedTotals = new();
+
     /// <summary>Whether the area is a town or hideout, where nothing is tracked.</summary>
     private bool _inTownOrHideout;
 
@@ -177,6 +183,10 @@ internal sealed class CauldronTracker
         _sinceRead.Reset();
         _sinceEntered.Restart();
         _iconsNotTracked.Clear();
+
+        // Leaving a finished map area records its total under its level, so later maps assume at least that many.
+        if (_areaHash != 0u && areaHash != _areaHash && _areaLevel > 0 && _cauldrons.Count > 0)
+            RecordAreaTotal(_areaLevel, _cauldrons.Count);
 
         if (areaHash != 0u && areaHash == _areaHash)
         {
@@ -232,8 +242,31 @@ internal sealed class CauldronTracker
     /// </summary>
     public IReadOnlyList<string> IconsNotTracked => _publishedIconsNotTracked;
 
+    /// <summary>Records one finished area's Cauldron total under its level; only the most per level is kept.</summary>
+    internal void RecordAreaTotal(int areaLevel, int total)
+    {
+        if (areaLevel <= 0 || total <= 0)
+            return;
+
+        if (!_observedTotals.TryGetValue(areaLevel, out var most) || total > most)
+            _observedTotals[areaLevel] = total;
+    }
+
+    /// <summary>The most Cauldrons seen in one finished area of this level, or 0 when none finished there yet.</summary>
+    public int ObservedTotal(int areaLevel) =>
+        _observedTotals.TryGetValue(areaLevel, out var total) ? total : 0;
+
+    /// <summary>Every level with a finished area, for the dump: "70: 3; 75: 4". Empty when none finished yet.</summary>
+    public string ObservedSummary() => string.Join("; ",
+        _observedTotals.OrderBy(static t => t.Key).Select(static t => $"{t.Key}: {t.Value}"));
+
     public void Update(GameController gc)
     {
+        var areaLevel = Safe.Read(gc, static g => g.Area.CurrentArea.RealLevel, 0);
+
+        if (areaLevel > 0)
+            _areaLevel = areaLevel;
+
         if (_sinceRead.IsRunning && _sinceRead.ElapsedMilliseconds < ReadIntervalMs)
             return;
 

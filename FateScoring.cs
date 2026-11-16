@@ -48,18 +48,31 @@ internal static class FateScoring
 {
     /// <summary>
     /// Which Cauldron of the map the player is choosing at and of how many, for "Estimated: 1/3" by the close button:
-    /// the Fates collected plus one, of the larger of the map's assumed Cauldrons (MapCauldrons) and this one plus
-    /// those the tracker knows still to come.
+    /// the Fates collected plus one, of the larger of the map's assumed Cauldrons (MapCauldrons, raised by finished
+    /// areas) and this one plus those the tracker knows still to come.
     /// </summary>
-    public static (int Current, int Total) CauldronProgressOf(FatesPanelState state, int areaLevel,
+    public static (int Current, int Total, string Source) CauldronProgressOf(FatesPanelState state, int areaLevel,
         CauldronTracker tracker)
     {
         var current = state.Collection.Count + 1;
         var mapFaction = state.Offered.FirstOrDefault(static c => c.Fate != null)?.Fate.FactionId;
         var known = tracker?.OffersToCome(mapFaction, true) ?? 0;
+        var observed = tracker?.ObservedTotal(areaLevel) ?? 0;
+        var total = Math.Max(Math.Max(MapCauldrons.Assumed(areaLevel), observed), current + known);
 
-        return (current, Math.Max(MapCauldrons.Assumed(areaLevel), current + known));
+        return (current, total, ProgressSource(current, known, areaLevel, observed));
     }
+
+    /// <summary>
+    /// Where the progress total comes from, for the line beside it: the tracker's Cauldrons still to come cover the
+    /// map ("tracked"), else finished areas raised the floor ("observed"), else the assumption stands ("assumed").
+    /// </summary>
+    public static string ProgressSource(int current, int known, int areaLevel, int observed) =>
+        current + known >= Math.Max(MapCauldrons.Assumed(areaLevel), observed)
+            ? "tracked"
+            : observed >= MapCauldrons.Assumed(areaLevel)
+                ? "observed"
+                : "assumed";
 
     /// <summary>
     /// The offers still to come for a Fate's faction while choosing: the larger of the count from the map's size
@@ -72,7 +85,8 @@ internal static class FateScoring
     public static Func<string, int> OffersToComeFor(FatesPanelState state, int areaLevel, CauldronTracker tracker)
     {
         var mapFaction = state.Offered.FirstOrDefault(static c => c.Fate != null)?.Fate.FactionId;
-        var fromMapSize = Math.Max(0, MapCauldrons.Assumed(areaLevel) - state.Collection.Count - 1);
+        var observed = tracker?.ObservedTotal(areaLevel) ?? 0;
+        var fromMapSize = Math.Max(0, MapCauldrons.Assumed(areaLevel, observed) - state.Collection.Count - 1);
 
         return faction =>
         {

@@ -1,3 +1,5 @@
+using System;
+
 namespace AutoAugury;
 
 /// <summary>
@@ -22,8 +24,9 @@ internal static class MapCauldrons
 
     /// <summary>What is assumed, as one of the known limits at the top of the settings (DevelopmentNotice).</summary>
     public const string Disclaimer =
-        "Cauldrons per map are assumed: 3 in white maps, 4 in yellow (seen 3 or 4), 5 in red (not yet seen). They " +
-        "set how many offers are still to come, and so the potential weight.";
+        "Cauldrons per map are assumed: 3 in white maps, 4 in yellow (seen 3 or 4), 5 in red (not yet seen). " +
+        "Finished areas raise the floor: the most Cauldrons seen at an area's level wins. The counts set how " +
+        "many offers are still to come, and so the potential weight.";
 
     public static int Assumed(int areaLevel) => areaLevel switch
     {
@@ -31,4 +34,10 @@ internal static class MapCauldrons
         <= HighestYellowLevel => 4,
         _ => 5,
     };
+
+    /// <summary>
+    /// The map's Cauldrons with finished areas taken into account: the most seen at the level wins over the
+    /// assumption, which stands when nothing finished there yet.
+    /// </summary>
+    public static int Assumed(int areaLevel, int observed) => Math.Max(Assumed(areaLevel), observed);
 }

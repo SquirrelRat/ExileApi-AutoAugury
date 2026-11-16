@@ -184,11 +184,11 @@ internal static class FateOverlay
     }
 
     /// <summary>
-    /// "Estimated: 1/3" to the left of the panel's close button while choosing: the Cauldron being chosen at, of the
-    /// map's estimated Cauldrons: MapCauldrons' assumption, or more when more are known
-    /// (FateScoring.CauldronProgressOf).
+    /// "Estimated: 1/3 (tracked)" to the left of the panel's close button while choosing: the Cauldron being chosen
+    /// at, of the map's estimated Cauldrons (FateScoring.CauldronProgressOf), and where the total comes from.
     /// </summary>
-    public static void DrawCauldronProgress(Graphics graphics, FatesPanelState state, (int Current, int Total) progress)
+    public static void DrawCauldronProgress(Graphics graphics, FatesPanelState state,
+        (int Current, int Total, string Source) progress)
     {
         var close = state.CloseButton;
 
@@ -197,7 +197,7 @@ internal static class FateOverlay
 
         var lineHeight = LineHeightOf(graphics);
 
-        graphics.DrawTextWithBackground($"Estimated: {progress.Current}/{progress.Total}",
+        graphics.DrawTextWithBackground($"Estimated: {progress.Current}/{progress.Total} ({progress.Source})",
             new Vector2(close.X - 8f, close.Y + close.Height / 2f - lineHeight / 2f), TextColour, FontAlign.Right,
             Background);
     }

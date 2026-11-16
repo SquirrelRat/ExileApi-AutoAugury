@@ -234,11 +234,16 @@ internal static class Dump
         if (state.ChoosingFate)
         {
             var known = cauldrons?.OffersToCome(mapFaction, true) ?? 0;
+            var observed = cauldrons?.ObservedTotal(areaLevel) ?? 0;
 
             b.AppendLine($"  offers to come for {mapFaction ?? "?"}: {offersToCome(mapFaction)} (area level " +
                          $"{areaLevel}, assumed {MapCauldrons.Assumed(areaLevel)} Cauldrons, " +
                          $"{state.Collection.Count} collected, this one; the tracker knows {known} not done " +
-                         "besides this one)");
+                         $"besides this one, most finished here {observed})");
+            b.AppendLine("  observed Cauldron totals by level: " +
+                (cauldrons == null || cauldrons.ObservedSummary().Length == 0
+                    ? "none finished yet"
+                    : cauldrons.ObservedSummary()));
         }
 
         if (state.Visible)

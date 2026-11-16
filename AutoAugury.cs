@@ -53,7 +53,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     private FatesPanelState _panelState = FatesPanelState.Closed;
     private IReadOnlyList<FateScore> _scores = [];
     private InvocationGuide _guide = InvocationGuide.None;
-    private (int Current, int Total) _cauldronProgress;
+    private (int Current, int Total, string Source) _cauldronProgress;
 
     public AutoAugury() => Order = PluginOrder;
 
