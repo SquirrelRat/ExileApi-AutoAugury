@@ -33,11 +33,12 @@ internal sealed record FateScore(FateCard Card, int Total, int Gain, double Pote
 /// A pick is worth what it adds to the collection's value, which has two parts:
 ///
 /// - Now: the best invocation at the area's boss (InvocationAdvisor; three slots while choosing, as seen at the boss).
-///   A second copy of a held Fate pairs with it (FateValues); a third adds nothing; once the collection fills the
-///   slots, a card only counts by how much it beats the Fates it would push out.
-/// - Later: CopyPotential, the expected value of the best pair the collection could still complete from the offers
-///   still to come (OffersToComeFor). Pairing a Fate now uses up the chance of pairing it later, so its potential is
-///   lost; a card of a new Fate brings the chance of its own pair, two- and three-copy rewards included.
+///   A second copy of a held Fate pairs with it (FateValues); a third counts its own rewards three times too
+///   (3.30.0b Hotfix 3); once the collection fills the slots, a card only counts by how much it beats the Fates it
+///   would push out.
+/// - Later: CopyPotential, the expected value of the best pair or triple the collection could still complete from
+///   the offers still to come (OffersToComeFor). Pairing a Fate now uses up the chance of pairing it later, so its
+///   potential is lost; a card of a new Fate brings the chance of its own pair, two- and three-copy rewards included.
 ///
 /// So the score is the change in the first plus the change in the second. With no offers known to come, the second is
 /// 0 and a card is scored on what it adds now. This replaced a flat "Two-copy reward potential" share (25% of a card's
@@ -100,7 +101,8 @@ internal static class FateScoring
             var potential = CopyPotential.Of(with, slots, settings, offersToCome) - potentialWithout;
             var pairedWith = pick == null
                 ? null
-                : pick.Empowers ?? advice.Picks.FirstOrDefault(p => ReferenceEquals(p.Empowers, card))?.Card;
+                : pick.Empowers ?? pick.ThirdCopyOf ??
+                  advice.Picks.FirstOrDefault(p => ReferenceEquals(p.Empowers, card))?.Card;
 
             scores.Add(new FateScore(card, (int)Math.Round(gain + potential), gain, potential, pick != null,
                 pairedWith, offersToCome(card.Fate?.FactionId), card.Rewards.Count(static r => r.Reward == null)));

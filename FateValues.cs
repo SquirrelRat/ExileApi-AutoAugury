@@ -4,8 +4,18 @@ using System.Linq;
 
 namespace AutoAugury;
 
-/// <summary>One Fate of an invocation: its copies, and the first of them, the copy the others empower.</summary>
-internal sealed record FateGroup(IReadOnlyList<FateCard> Copies, FateCard First);
+/// <summary>
+/// One Fate of an invocation: its copies in placing order. The second copy empowers the first; a third counts its own
+/// rewards three times too (FateValues).
+/// </summary>
+internal sealed record FateGroup(IReadOnlyList<FateCard> Copies)
+{
+    /// <summary>The copy placed first, whose rewards count, three times over when a second copy empowers it.</summary>
+    public FateCard First => Copies[0];
+
+    /// <summary>The copy placed third, whose own rewards count three times; null with fewer than three.</summary>
+    public FateCard Third => Copies.Count >= 3 ? Copies[2] : null;
+}
 
 /// <summary>
 /// What an invocation is worth by the player's weights: the rules InvocationAdvisor, FateScoring and CopyPotential
@@ -16,8 +26,12 @@ internal sealed record FateGroup(IReadOnlyList<FateCard> Copies, FateCard First)
 /// this slot"). A reward that needs n copies is claimed once for every n of its count. Measured: a pair of Incandescent
 /// whose first copy held greatly increased Item Rarity (1 copy), additional Currency Items (2) and additional Valuable
 /// Currency Items (3) showed "3x" Item Rarity, "1x" Currency Items with "1/2" left over, and "1x" Valuable Currency
-/// Items; so a pair claims two- and three-copy rewards alike. Placing a third copy changed nothing in the summary and
-/// took the slots' tier back from 3 to 2.
+/// Items; so a pair claims two- and three-copy rewards alike.
+///
+/// A third copy counts its own rewards three times each, added to the first's, by the patch notes of 3.30.0b Hotfix 3
+/// (2026-11-16): "When Invoking Fates, you may now Invoke three copies of the same Fate. The first and third Fates will
+/// have their rewards tripled, while the second is ignored." Not yet measured in the summary. Before the hotfix,
+/// placing a third copy changed nothing in the summary and took the slots' tier back from 3 to 2 (2026-11-14 05:35).
 ///
 /// Counts are added up across Fates, reward by reward (CurrencyLow1 and CurrencyHigh1, which share their text, are
 /// listed apart). Measured: a Houndmaster pair whose first copy held massively increased Item Rarity (2 copies) and
@@ -31,19 +45,17 @@ internal static class FateValues
 
     /// <summary>
     /// What an invocation is worth: each reward's count over the Fates' first copies (EmpoweredMultiple for a Fate
-    /// with two or more copies, 1 for one), claimed once per the copies it needs, times its family's weight; plus each
-    /// Fate's Preference. A reward no catalogue reward matched counts nothing.
+    /// with two or more copies, 1 for one) and third copies (EmpoweredMultiple), claimed once per the copies it needs,
+    /// times its family's weight; plus each Fate's Preference. A reward no catalogue reward matched counts nothing.
     /// </summary>
     public static int InvocationValue(IEnumerable<FateGroup> groups, AutoAugurySettings settings)
     {
         var counts = new Dictionary<string, (AuguryReward Reward, int Needed, int Count)>();
         var preference = 0;
 
-        foreach (var group in groups)
+        void Count(FateCard card, int multiple)
         {
-            var multiple = group.Copies.Count >= 2 ? EmpoweredMultiple : 1;
-
-            foreach (var shown in group.First.Rewards)
+            foreach (var shown in card.Rewards)
             {
                 if (shown.Reward == null)
                     continue;
@@ -52,6 +64,14 @@ internal static class FateValues
                 counts[shown.Reward.Id] = (shown.Reward, Math.Max(Math.Max(1, shown.CopiesNeeded), entry.Needed),
                     entry.Count + multiple);
             }
+        }
+
+        foreach (var group in groups)
+        {
+            Count(group.First, group.Copies.Count >= 2 ? EmpoweredMultiple : 1);
+
+            if (group.Third != null)
+                Count(group.Third, EmpoweredMultiple);
 
             preference += Preference(group.First, group.Copies.Count, settings);
         }
@@ -62,7 +82,8 @@ internal static class FateValues
 
     /// <summary>
     /// One card's rewards on their own, each counted the given number of times and claimed once per the copies it
-    /// needs: with 1, what the card pays alone; with EmpoweredMultiple, what it pays as a pair's first copy.
+    /// needs: with 1, what the card pays alone; with EmpoweredMultiple, what it pays as an empowered Fate's first copy
+    /// or as a third copy.
     /// </summary>
     public static int RewardsValue(FateCard card, int multiple, AutoAugurySettings settings) =>
         card.Rewards.Where(static r => r.Reward != null)
@@ -78,8 +99,9 @@ internal static class FateValues
 
     /// <summary>
     /// The tier a Fate is invoked at: its own, one higher for a pair ("upgrading its tier"), and its own again for
-    /// three copies. Seen once: Incandescent of tier 2 read tier 3 with two copies placed and tier 2 with three
-    /// (2026-11-14 05:35). Whether a tier 3 Fate's pair goes above 3 is not known.
+    /// three copies. Seen once, before 3.30.0b Hotfix 3: Incandescent of tier 2 read tier 3 with two copies placed and
+    /// tier 2 with three (2026-11-14 05:35). Whether the hotfix changed the tier of three copies, and whether a tier 3
+    /// Fate's pair goes above 3, is not known.
     /// </summary>
     public static int TierInvokedAt(int tier, int copies) => copies == 2 ? tier + 1 : tier;
 

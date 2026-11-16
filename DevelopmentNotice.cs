@@ -19,8 +19,10 @@ internal static class DevelopmentNotice
     private static readonly string[] KnownLimits =
     [
         MapCauldrons.Disclaimer,
-        "Potential weight ignores later cards of other Fates that carry a reward you hold part of, and treats a " +
-        "later copy as having no rewards of its own, so it errs low.",
+        "Potential weight ignores later cards of other Fates that carry a reward you hold part of, and takes a " +
+        "later copy to carry the rewards of the weakest copy of its Fate you hold.",
+        "Three copies of a Fate are counted as 3.30.0b Hotfix 3 describes (the first and third copies' rewards " +
+        "tripled), not yet checked in game; their tier is taken to be the Fate's own, as it was before the hotfix.",
         "Offers are taken to be drawn evenly from the Fates of the Cauldron's faction.",
         "The tier of 7 Fates cannot be read (Dryad, Gravewalker, Pestilent, Sadist, Savage, Tempest, Wildfire); it " +
         "only counts when Score per tier is not 0.",

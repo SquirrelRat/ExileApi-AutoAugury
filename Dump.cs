@@ -296,6 +296,7 @@ internal static class Dump
         {
             b.AppendLine($"    {pick.Order}. {pick.Card.Name}, adds {guide.GainOf(pick)}" +
                          (pick.Empowers == null ? "" : $", empowers {pick.Empowers.Name}") +
+                         (pick.ThirdCopyOf == null ? "" : $", third copy of {pick.ThirdCopyOf.Name}, tripled") +
                          (guide.IsPlaced(pick) ? ", placed" : "") +
                          (ReferenceEquals(pick, guide.Next) ? ", NEXT" : ""));
         }

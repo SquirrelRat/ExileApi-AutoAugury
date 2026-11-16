@@ -5,18 +5,20 @@ using System.Linq;
 namespace AutoAugury;
 
 /// <summary>
-/// What a collection is still worth for the second copies of its Fates that the offers to come could bring: the
-/// expected value of completing a pair, by the player's weights. FateScoring adds the change in it to an offered card's
-/// immediate gain, so that pairing a Fate now gives up the chance of pairing it later, and a new Fate brings its own
-/// chance, rewards that need two or three copies included (a pair claims both, FateValues).
+/// What a collection is still worth for the further copies of its Fates that the offers to come could bring: the
+/// expected value of completing a pair or a triple, by the player's weights. FateScoring adds the change in it to an
+/// offered card's immediate gain, so that pairing a Fate now gives up the chance of pairing it later, and a new Fate
+/// brings its own chance, rewards that need two or three copies included (a pair claims both, FateValues).
 ///
-/// For each Fate held once: the chance the offers to come bring at least one more copy, k offers each with a chance
-/// q = 3/N of showing the Fate (N the Fates of its faction, 7, 10 or 8; an offer shows a Fate at most once), k the
-/// offers to come from Cauldrons of its faction (FateScoring.OffersToComeFor); and the value of that copy, what it adds
-/// to the best invocation (InvocationAdvisor with a copy that has no rewards of its own, since a copy that empowers
-/// pays nothing; so the first copy's rewards counted three times, within the slots). Any Fate copy counts, whatever its
-/// rewards. A third copy adds nothing (the boss's summary did not change, 2026-11-14 05:35), so a Fate held twice has
-/// no potential.
+/// For each Fate held once or twice: the chance the offers to come bring one more copy, or two, k offers each with a
+/// chance q = 3/N of showing the Fate (N the Fates of its faction, 7, 10 or 8; an offer shows a Fate at most once), k
+/// the offers to come from Cauldrons of its faction (FateScoring.OffersToComeFor); and the value of those copies, what
+/// they add to the best invocation (InvocationAdvisor, within the slots). A second copy pays nothing of its own, but a
+/// third counts its own rewards three times (3.30.0b Hotfix 3), so a copy to come needs rewards: it is taken to carry
+/// those of the weakest held copy of its Fate (the least as an empowered copy). Copies of one Fate have shared a
+/// reward (three Incandescent, each with three-copy Valuable Currency, 2026-11-14 05:35; two Houndmaster, each with
+/// Currency Items, 06:14), but the catalogue ties no reward to a Fate, so the held copies are only a sample; of two,
+/// the weaker is taken, so as not to count on the luckier.
 ///
 /// The Fates compete for the same offers and slots, so their expected values are not added: the potential is the
 /// expected best, the Fates ordered by their value when they do get a copy, E1 + E2 (1 - P1) + E3 (1 - P1)(1 - P2) ...,
@@ -24,7 +26,7 @@ namespace AutoAugury;
 ///
 /// Assumed, not measured: offers are three Fates of the Cauldron's faction drawn evenly. Not counted: a later card of
 /// another Fate carrying the same reward, which adds to its count (counts pool across Fates, FateValues), and a later
-/// copy with better rewards than the held one placed first instead. With no offers to come the potential is 0 and a
+/// copy's own rewards, better or worse than the weakest held copy's. With no offers to come the potential is 0 and a
 /// card is scored on its immediate gain alone.
 /// </summary>
 internal static class CopyPotential
@@ -32,8 +34,8 @@ internal static class CopyPotential
     /// <summary>Fates per offer: every offer seen showed three (2026-11-14), of five card slots.</summary>
     public const int FatesPerOffer = 3;
 
-    /// <summary>The most copies of one Fate counted: two, as a third copy adds nothing (FateValues).</summary>
-    public const int MostCopies = 2;
+    /// <summary>The most copies of one Fate counted: three, the most that can be invoked (3.30.0b Hotfix 3).</summary>
+    public const int MostCopies = 3;
 
     /// <summary>One way a held Fate could gain copies: how many more, what they would add, and the chance.</summary>
     public sealed record CopyOutcome(int More, int Value, double Chance);
@@ -63,7 +65,7 @@ internal static class CopyPotential
         foreach (var group in GroupsOf(collection))
         {
             var held = group.Count;
-            var card = group[0];
+            var card = group.MinBy(c => FateValues.RewardsValue(c, FateValues.EmpoweredMultiple, settings));
             var offers = offersToCome(card.Fate?.FactionId);
 
             if (held >= MostCopies || offers <= 0)
@@ -75,8 +77,8 @@ internal static class CopyPotential
 
             for (var more = 1; more <= most; more++)
             {
-                // Further copies empower the first and pay nothing of their own, so their rewards do not matter.
-                var copies = Enumerable.Repeat(card with { Rewards = [], Rect = default }, more);
+                // Copies to come carry the weakest held copy's rewards; a second pays nothing, a third its own.
+                var copies = Enumerable.Repeat(card with { Rect = default, Placed = false }, more);
                 var value = InvocationAdvisor.Best(collection.Concat(copies).ToList(), slots, settings).Total -
                             baseline;
                 var chance = more < most

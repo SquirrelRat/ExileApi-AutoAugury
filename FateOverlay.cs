@@ -30,7 +30,7 @@ internal static class FateOverlay
     /// <summary>Red for a pick that scores below zero.</summary>
     private static readonly Color NegativeColour = Colours.FromArgb(255, 235, 90, 90);
 
-    /// <summary>Purple for a copy that empowers an earlier one, AutoExpedition's reward colour.</summary>
+    /// <summary>Purple for a Fate's second or third copy, AutoExpedition's reward colour.</summary>
     private static readonly Color EmpowerColour = Colours.FromArgb(255, 190, 120, 255);
 
     private static readonly Color TextColour = Colours.FromArgb(255, 245, 245, 245);
@@ -93,13 +93,13 @@ internal static class FateOverlay
 
     /// <summary>
     /// Frames only the card to place next (InvocationGuide.Next: the remaining card that adds the most while the order
-    /// is free, the advice's next while a pair's first copy is still to place), green or, for a copy that empowers an
-    /// earlier one, purple, with what placing it adds above it ("+15", "+40 pair"). Framing every card while the order
-    /// was free was tried and dropped as more confusing. Writes one line to the left of the confirm button:
-    /// what each pick adds in placing order, as placed so far ("weights: 15 + 15 + 5 = 35"), with "(any order)" when no
-    /// two picks are copies of one Fate. When the placed cards allow less than the best invocation, a red line under it
-    /// says how much and why: "wrong order" when a pair's copies went in the wrong way round, "not the best Fates" when
-    /// a placed card is not among them.
+    /// is free, the advice's next while two copies of one Fate are still to place), green or, for a Fate's second or
+    /// third copy, purple, with what placing it adds above it ("+15", "+40 pair", "+45 triple"). Framing every card
+    /// while the order was free was tried and dropped as more confusing. Writes one line to the left of the confirm
+    /// button: what each pick adds in placing order, as placed so far ("weights: 15 + 15 + 5 = 35"), with "(any order)"
+    /// when no two picks are copies of one Fate. When the placed cards allow less than the best invocation, a red line
+    /// under it says how much and why: "wrong order" when copies of one Fate went in the wrong order, "not the best
+    /// Fates" when a placed card is not among them.
     /// </summary>
     public static void DrawGuide(Graphics graphics, InvocationGuide guide, FatesPanelState state)
     {
@@ -111,8 +111,9 @@ internal static class FateOverlay
             if (pick.Card.Rect.Width <= 0f)
                 continue;
 
-            var colour = pick.Empowers == null ? BestColour : EmpowerColour;
-            var label = Signed(guide.GainOf(pick)) + (pick.Empowers == null ? "" : " pair");
+            var copyMark = pick.Empowers != null ? " pair" : pick.ThirdCopyOf != null ? " triple" : "";
+            var colour = copyMark.Length == 0 ? BestColour : EmpowerColour;
+            var label = Signed(guide.GainOf(pick)) + copyMark;
 
             graphics.DrawFrame(pick.Card.Rect, colour, 3);
             DrawAbove(graphics, pick.Card.Rect, 1, lineHeight, label, colour);
