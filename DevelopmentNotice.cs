@@ -1,11 +1,14 @@
 using System.Numerics;
+using ExileCore.Shared.Nodes;
 using ImGuiNET;
 
 namespace AutoAugury;
 
 /// <summary>
 /// The notice at the top of the plugin's settings: that the plugin is in development, then its known limits, each a
-/// thing assumed or not counted, so a player can judge the scores. Drawn by AutoAugurySettings.DevelopmentNoticeUi.
+/// thing assumed or not counted, so a player can judge the scores. The last limit, the Fates per Cauldron, has its
+/// setting drawn under it, so the player can answer it where it is read. Drawn by
+/// AutoAugurySettings.DevelopmentNoticeUi.
 /// </summary>
 internal static class DevelopmentNotice
 {
@@ -13,32 +16,34 @@ internal static class DevelopmentNotice
     private static readonly Vector4 NoticeColour = new(1f, 210f / 255f, 80f / 255f, 1f);
 
     private const string InDevelopment =
-        "This plugin is in development: there may be bugs, and details may be inaccurate.";
+        "This plugin is still in development. Expect bugs and some inaccurate details.";
 
-    /// <summary>The known limits, one bullet each.</summary>
+    /// <summary>
+    /// The known limits, one bullet each, in plain words. Cut on 2026-11-19 to what still affects a score with the
+    /// default settings: the Cauldron count is read off the game's Fate counter (MapCauldrons), three copies take a
+    /// pair's tier (FateValues.TierInvokedAt), a Fate's tier read off another card is exact (every card in an area
+    /// shows one tier, FatesPanel.WithAreaTier), and Hard mode rewards are not offered outside Ruthless, so none of
+    /// them is a limit.
+    /// </summary>
     private static readonly string[] KnownLimits =
     [
-        MapCauldrons.Disclaimer,
-        "Potential weight ignores later cards of other Fates that carry a reward you hold part of, and takes a " +
-        "later copy to carry the rewards of the weakest copy of its Fate you hold.",
-        "Three copies of a Fate are counted as 3.30.0b Hotfix 3 describes (the first and third copies' rewards " +
-        "tripled), not yet checked in game; their tier is taken to be the Fate's own, as it was before the hotfix.",
-        "Offers are taken to be drawn evenly from the Fates of the Cauldron's faction.",
-        "The tier of 7 Fates cannot be read off their card (Dryad, Gravewalker, Pestilent, Sadist, Savage, Tempest, " +
-        "Wildfire); it is taken from another card in the area, as every card in an area shows the same tier. It " +
-        "only counts when Score per tier is not 0.",
-        "Must take rewards (by default Hinekora's Lock, Mirror Shard, Reflecting Mist, Fracturing Orb and Divine " +
-        "Orbs) decide the pick before the weights: with " +
-        "none held, the card with the weightiest one; with one held, the card that adds most to them, a lone copy " +
-        "of a three-copy reward counting a third. The default weights were set for 3.30.0c on 2026-11-19, the " +
-        "chase rewards starting from poe.ninja prices at 100 per Divine Orb.",
-        "Rewards a patch adds or rewords are learned the first time a card shows them and listed under Reward " +
-        "weights as new rewards. Each counts nothing until you set its weight; a message under the cursor says so.",
-        "Hard mode rewards are in the game's data but have not been seen offered; they are taken to be Ruthless " +
-        "only, and are weighted by their family's weight.",
+        "Must take rewards are always picked first, except against other Must take rewards. By default these are " +
+        "Hinekora's Lock, Mirror Shard, Reflecting Mist, Fracturing Orb and Divine Orbs.",
+        "The default weights are based on poe.ninja prices from 2026-11-19, with a Divine Orb worth 100.",
+        "Scores include the chance of getting another copy of a Fate later. This assumes every Fate of the " +
+        "Cauldron's faction is equally likely to be offered, and that a later copy has the same rewards as your " +
+        "weakest copy. Other Fates that could add to a reward you have started don't count towards this potential; " +
+        "if one is offered, it is still scored and picked as normal.",
+        "Rewards added in a later patch are marked with a red border, and will have no weight until you set one in " +
+        "the Rewards section.",
     ];
 
-    public static void Draw()
+    /// <summary>The last known limit, with Fates per Cauldron drawn under it; the user's words (2026-11-19).</summary>
+    private const string FatesPerCauldronLimit =
+        "A Cauldron seems to offer a random number of Fate cards to choose from. I've guessed an average of 3.5, " +
+        "feel free to adjust it below. This impacts the potential weight for later picks.";
+
+    public static void Draw(AutoAugurySettings settings)
     {
         ImGui.PushStyleColor(ImGuiCol.Text, NoticeColour);
         ImGui.TextWrapped(InDevelopment);
@@ -48,12 +53,37 @@ internal static class DevelopmentNotice
         ImGui.TextWrapped("Known limits:");
 
         foreach (var limit in KnownLimits)
-        {
-            ImGui.Bullet();
-            ImGui.SameLine();
-            ImGui.TextWrapped(limit);
-        }
+            DrawBullet(limit);
 
+        DrawBullet(FatesPerCauldronLimit);
         ImGui.PopStyleColor();
+
+        DrawFatesPerCauldron(settings.FatesPerCauldron);
+    }
+
+    private static void DrawBullet(string text)
+    {
+        ImGui.Bullet();
+        ImGui.SameLine();
+        ImGui.TextWrapped(text);
+    }
+
+    /// <summary>
+    /// The Fates per Cauldron slider, indented under its bullet, one decimal (ImGui rounds the value to the format).
+    /// </summary>
+    private static void DrawFatesPerCauldron(RangeNode<float> fatesPerCauldron)
+    {
+        ImGui.Indent();
+
+        var value = fatesPerCauldron.Value;
+
+        if (ImGui.SliderFloat("Fates per Cauldron###autoauguryfatespercauldron", ref value, fatesPerCauldron.Min,
+                fatesPerCauldron.Max, "%.1f"))
+            fatesPerCauldron.Value = value;
+
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("A fraction such as 3.5 is an average: 3 or 4, equally likely.\nCtrl+click to type.");
+
+        ImGui.Unindent();
     }
 }

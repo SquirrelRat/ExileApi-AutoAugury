@@ -125,10 +125,11 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
 
             _scores = state.ChoosingFate
                 ? FateScoring.Score(state, Settings,
-                    FateScoring.OffersToComeFor(state, areaLevel, Cauldrons, Settings.Maps))
+                    FateScoring.OffersToComeFor(state, areaLevel, Cauldrons))
                 : [];
-            _cauldronProgress = state.ChoosingFate
-                ? FateScoring.CauldronProgressOf(state, areaLevel, Cauldrons, Settings.Maps)
+            // The game's Fate counter, when the panel shows it, says what "Estimated: 1/3" would.
+            _cauldronProgress = state.ChoosingFate && state.Counter == null
+                ? FateScoring.CauldronProgressOf(state, areaLevel, Cauldrons)
                 : default;
             _guide = state.InvokingFates ? InvocationAdvisor.GuideFor(state, Settings) : InvocationGuide.None;
         }

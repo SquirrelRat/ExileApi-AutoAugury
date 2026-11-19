@@ -129,7 +129,8 @@ internal static class RewardFamilies
     /// 06:50 became the defaults). Every family not named gets 1, which most rare items with a given modifier have,
     /// so a family a later patch adds starts at 1 until the catalogue is regenerated and it is weighted.
     ///
-    /// The chase rewards 3.30.0c added for high tier maps (all needing three copies) started from poe.ninja's Covens
+    /// The chase rewards 3.30.0c added for high tier maps (all needing three copies then; since 3.30.0.4 a single
+    /// Divine Orb and a single Orb of Annulment need two, weights unchanged) started from poe.ninja's Covens
     /// currency prices of 2026-11-18 at 100 per Divine Orb (a Divine Orb 219 chaos): Hinekora's Lock 63.71 divines,
     /// 6371; Mirror Shard 26.78, 2678; Reflecting Mist 8.66, 866; Fracturing Orb 5.73, 573; a Divine Orb 100. The user
     /// then set Divine Orbs (how many is not said) 300, a Sacred Orb 66, Orbs of Annulment 47 (the Id misspelt in the

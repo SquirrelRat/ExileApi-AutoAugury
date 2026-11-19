@@ -24,11 +24,28 @@ internal static class Section
 
 public class AutoAugurySettings : ISettings
 {
-    public AutoAugurySettings() => ResetAllSettingsUi = new CustomNode(DrawResetAllSettings);
+    public AutoAugurySettings()
+    {
+        DevelopmentNoticeUi = new CustomNode(() => DevelopmentNotice.Draw(this));
+        ResetAllSettingsUi = new CustomNode(DrawResetAllSettings);
+    }
 
-    /// <summary>First in the menu: the plugin is in development, and its known limits (DevelopmentNotice).</summary>
+    /// <summary>
+    /// First in the menu: the plugin is in development, its known limits, and Fates per Cauldron under the limit it
+    /// answers (DevelopmentNotice). Made in the constructor because it draws a setting.
+    /// </summary>
     [JsonIgnore]
-    public CustomNode DevelopmentNoticeUi { get; set; } = new(DevelopmentNotice.Draw);
+    public CustomNode DevelopmentNoticeUi { get; set; }
+
+    /// <summary>
+    /// The Fates a Cauldron is taken to offer, on average, for the chance that a later offer shows a Fate again
+    /// (CopyPotential.PerOfferChance). Drawn by DevelopmentNotice under its known limit, not by the menu. Offers of 3
+    /// and of 4 were seen in one map after patch 3.30.0.4 (the user, 2026-11-19); what decides is not in the client's
+    /// data (no stat for it among the patch's Augury stats), so it is the player's to set: 3 to 5 (the user's range),
+    /// 3.5 until set, the middle of what was seen.
+    /// </summary>
+    [IgnoreMenu]
+    public RangeNode<float> FatesPerCauldron { get; set; } = new(3.5f, 3f, 5f);
 
     /// <summary>
     /// The button at the top of the menu that puts every setting back to its default except Enable (SettingsReset).
@@ -54,9 +71,6 @@ public class AutoAugurySettings : ISettings
 
     [Submenu(CollapsedByDefault = true)]
     public FateSettings Fates { get; set; } = new();
-
-    [Submenu(CollapsedByDefault = true)]
-    public MapSettings Maps { get; set; } = new();
 
     [Submenu(CollapsedByDefault = true)]
     public DisplaySettings Display { get; set; } = new();
@@ -210,25 +224,6 @@ public class FateSettings
     public Dictionary<string, int> Weights { get; set; } = new();
 
     public int WeightOf(string fateId) => fateId != null && Weights.TryGetValue(fateId, out var weight) ? weight : 0;
-}
-
-/// <summary>
-/// How many Cauldrons a map is taken to hold, by its colour (MapCauldrons): what sets the offers still to come, and so
-/// the potential weight and "Estimated: 1/3". A fraction is an expectation, 3.5 being 3 or 4 Cauldrons equally likely.
-/// The defaults are those assumed before these settings (3, 4, 5); white maps were seen with 3, yellow with 3 or 4.
-/// </summary>
-public class MapSettings
-{
-    private const string FractionHelp = "A fraction such as 3.5 counts as 3 or 4, equally likely.\nCtrl+click to type.";
-
-    [Menu("Cauldrons in white maps", FractionHelp)]
-    public RangeNode<float> WhiteMapCauldrons { get; set; } = new(3f, 1f, 8f);
-
-    [Menu("Cauldrons in yellow maps", FractionHelp)]
-    public RangeNode<float> YellowMapCauldrons { get; set; } = new(4f, 1f, 8f);
-
-    [Menu("Cauldrons in red maps", FractionHelp)]
-    public RangeNode<float> RedMapCauldrons { get; set; } = new(5f, 1f, 8f);
 }
 
 public class DisplaySettings

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Text.RegularExpressions;
 using ExileCore;
 using ExileCore.PoEMemory;
 using RectangleF = SharpDX.RectangleF;
@@ -59,7 +60,8 @@ internal sealed record FateCard(string Name, AuguryFate Fate, int? Tier, Rectang
 /// empty slot shows as a card frame with its name hidden (three at the boss of 2026-11-14 03:38).
 /// </param>
 /// <param name="ConfirmButton">
-/// The confirm button's rectangle ([2,9], 193x45 below the top row in both views); empty when it is not visible.
+/// The confirm button's rectangle ([2,10], below the top row in both views; 221x52 while choosing since 3.30.0c, 193x45
+/// before); empty when it is not visible.
 /// </param>
 /// <param name="CloseButton">
 /// The close button's rectangle ([3], 37x37 at the panel's top right in both views); empty when it is not visible.
@@ -69,9 +71,10 @@ internal sealed record FateCard(string Name, AuguryFate Fate, int? Tier, Rectang
 /// card's own rectangle stays): the most read so far; 0 until a hovered card has been read (the overlay then takes
 /// FatesPanel.UnmeasuredHoverLift).
 /// </param>
+/// <param name="Counter">The Fate counter the panel shows ([2,5,0]); null when it shows none, or not "N/M".</param>
 internal sealed record FatesPanelState(bool Visible, string Title, IReadOnlyList<FateCard> Offered,
     IReadOnlyList<FateCard> Collection, IReadOnlyList<RectangleF> TopRowSlots, RectangleF ConfirmButton,
-    RectangleF CloseButton, float HoverLift = 0f)
+    RectangleF CloseButton, float HoverLift = 0f, FateCounter Counter = null)
 {
     public const string ChoosingTitle = "Fates";
     public const string InvokingTitle = "Invoke Fates";
@@ -86,16 +89,45 @@ internal sealed record FatesPanelState(bool Visible, string Title, IReadOnlyList
 }
 
 /// <summary>
+/// The Fate counter the game shows since patch 3.30.0.4 (2026-11-19), "collected/available", in the Fates panel and on
+/// the Show collected Fates button: the Fates collected in the area, and the Fates it holds, one per Cauldron. Read
+/// from the client's code: the first number is the collection's length, the second a byte the server sends in a
+/// message that carries nothing else (ClientAugury's sub-message 4). Seen in game: it counts the map's Cauldrons used
+/// and in all (the user, 2026-11-19: "1/4" after the first choice).
+/// </summary>
+internal sealed record FateCounter(int Collected, int InArea)
+{
+    private static readonly Regex CounterText = new(@"^\s*(\d+)\s*/\s*(\d+)\s*$", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// The counter a text shows, or null when the text is not "N/M" with M at least 1. The button's copy read empty
+    /// before the server had sent the count (dump of 2026-11-19 22:25:49, no Cauldron opened yet in that visit).
+    /// </summary>
+    public static FateCounter Parse(string text)
+    {
+        var match = CounterText.Match(text ?? "");
+
+        if (!match.Success || !int.TryParse(match.Groups[1].Value, out var collected) ||
+            !int.TryParse(match.Groups[2].Value, out var inArea) || inArea < 1)
+            return null;
+
+        return new FateCounter(collected, inArea);
+    }
+}
+
+/// <summary>
 /// Reads the Fates panel, the Augury window in which a Cauldron's Fates are chosen and, at the area's boss, the
 /// collection's Fates are invoked, as the game shows them. Only visible elements count: the panel reuses its elements,
 /// and hidden ones keep earlier cards' names and rewards (dumps of 2026-11-14).
 ///
 /// The layout, read off dumps of 2026-11-14 (the panel while choosing, and at the boss): the panel is a
 /// child of IngameUi whose index moves as other panels open, recognised by its title, child 2's child 3: "Fates" while
-/// choosing, "Invoke Fates" at the boss. Below child 2: [5,0] the top row (the offer, or the invocation slots), [6,0]
-/// the collection, [7] a reward summary (hidden while choosing, visible at the boss), [9] the confirm button. A card
-/// k's content is [k,0,0]: [4] its name, [8,0] its reward icons, each icon's child [3] the reward's text; the card
-/// element's Tooltip holds its full text.
+/// choosing, "Invoke Fates" at the boss. Below child 2: [5,0] the Fate counter's text, "collected/available" ("0/4"),
+/// [6,0] the top row (the offer, or the invocation slots), [7,0] the collection, [8] a reward summary (hidden while
+/// choosing, visible at the boss), [10] the confirm button. Patch 3.30.0.4 (2026-11-19) added the counter at [5] and
+/// moved every later child up one (child 2 had 11 children before, 12 since; dumps of 22:30 to 22:36 choosing, with
+/// the counter at "0/4" to "2/4", and 22:37:09 at the boss, "4/4"). A card k's content is [k,0,0]: [4] its name,
+/// [8,0] its reward icons, each icon's child [3] the reward's text; the card element's Tooltip holds its full text.
 /// </summary>
 internal sealed class FatesPanel
 {
@@ -144,14 +176,19 @@ internal sealed class FatesPanel
         var body = ChildAt(panel, 2);
 
         var title = TitleOf(panel);
-        var top = CardsOf(ChildAt(body, 5, 0));
-        var bottom = CardsOf(ChildAt(body, 6, 0));
+        var top = CardsOf(ChildAt(body, 6, 0));
+        var bottom = CardsOf(ChildAt(body, 7, 0));
         var (offered, collection) = WithAreaTier(top.Cards, bottom.Cards, title == FatesPanelState.ChoosingTitle);
 
         _hoverLift = Math.Max(_hoverLift, Math.Max(top.Lift, bottom.Lift));
 
-        return new FatesPanelState(true, title, offered, collection, top.Slots, VisibleRectOf(ChildAt(body, 9)),
-            VisibleRectOf(ChildAt(panel, 3)), _hoverLift);
+        var counterElement = ChildAt(body, 5, 0);
+        var counter = Safe.Read(counterElement, static c => c?.IsVisible ?? false, false)
+            ? FateCounter.Parse(TextOf(counterElement))
+            : null;
+
+        return new FatesPanelState(true, title, offered, collection, top.Slots, VisibleRectOf(ChildAt(body, 10)),
+            VisibleRectOf(ChildAt(panel, 3)), _hoverLift, counter);
     }
 
     /// <summary>

@@ -218,23 +218,30 @@ internal static class Dump
         b.AppendLine($"  visible {state.Visible}, title \"{state.Title}\", choosing a Fate {state.ChoosingFate}, " +
                      $"invoking Fates {state.InvokingFates}, {state.Offered.Count} named in the top row of " +
                      $"{state.TopRowSlots.Count} visible, {state.Collection.Count} collected, hover lift " +
-                     (state.HoverLift > 0f ? $"{state.HoverLift:0} px" : "not read (no card hovered)"));
+                     (state.HoverLift > 0f ? $"{state.HoverLift:0} px" : "not read (no card hovered)") +
+                     ", Fate counter " + (state.Counter is { } counter
+                         ? $"{counter.Collected}/{counter.InArea}"
+                         : "not read"));
 
         DescribeLearnedRewards(b, settings.Rewards);
         DescribeCauldrons(b, cauldrons);
         DescribeServerMinimapIcons(b, gc);
 
-        var offersToCome = FateScoring.OffersToComeFor(state, areaLevel, cauldrons, settings.Maps);
+        var offersToCome = FateScoring.OffersToComeFor(state, areaLevel, cauldrons);
         var mapFaction = state.Offered.FirstOrDefault(static c => c.Fate != null)?.Fate.FactionId;
 
         if (state.ChoosingFate)
         {
             var known = cauldrons?.OffersToCome(mapFaction, true) ?? 0;
 
+            var inArea = MapCauldrons.InArea(state.Counter, areaLevel);
+            var whence = state.Counter != null ? "by the Fate counter" : "assumed for the area level";
+
             b.AppendLine($"  offers to come for {mapFaction ?? "?"}: {offersToCome(mapFaction):0.##} (area level " +
-                         $"{areaLevel}, {MapCauldrons.PerMap(areaLevel, settings.Maps):0.##} Cauldrons as set, " +
-                         $"{state.Collection.Count} collected, this one; the tracker knows {known} not done " +
-                         "besides this one)");
+                         $"{areaLevel}, {inArea:0.##} Cauldrons {whence}, " +
+                         $"{state.Counter?.Collected ?? state.Collection.Count} collected, this one; the tracker " +
+                         $"knows {known} not done besides this one), {settings.FatesPerCauldron.Value:0.#} Fates " +
+                         "per Cauldron as set");
         }
 
         if (state.Visible)

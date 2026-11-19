@@ -252,9 +252,9 @@ internal static class FateOverlay
     }
 
     /// <summary>
-    /// "Estimated: 1/3" to the left of the panel's close button while choosing: the Cauldron being chosen at, of the
-    /// map's estimated Cauldrons: MapCauldrons' setting ("1/3.5" for a fraction), or more when more are known
-    /// (FateScoring.CauldronProgressOf).
+    /// "Estimated: 1/3" to the left of the panel's close button while choosing and the panel shows no Fate counter:
+    /// the Cauldron being chosen at, of the map's estimated Cauldrons: MapCauldrons' setting ("1/3.5" for a fraction),
+    /// or more when more are known (FateScoring.CauldronProgressOf). Not drawn when progress is empty.
     /// </summary>
     public static void DrawCauldronProgress(Graphics graphics, FatesPanelState state,
         (int Current, double Total) progress)

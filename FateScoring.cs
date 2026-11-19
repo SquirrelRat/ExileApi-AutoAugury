@@ -62,32 +62,32 @@ internal static class FateScoring
 {
     /// <summary>
     /// Which Cauldron of the map the player is choosing at and of how many, for "Estimated: 1/3" by the close button:
-    /// the Fates collected plus one, of the larger of the map's Cauldrons as set (MapCauldrons, maybe a fraction) and
-    /// this one plus those the tracker knows still to come.
+    /// the Fates collected plus one, of the larger of the map's Cauldrons (MapCauldrons.InArea: the Fate counter's, or
+    /// the fixed count, maybe a fraction) and this one plus those the tracker knows still to come.
     /// </summary>
     public static (int Current, double Total) CauldronProgressOf(FatesPanelState state, int areaLevel,
-        CauldronTracker tracker, MapSettings maps)
+        CauldronTracker tracker)
     {
-        var current = state.Collection.Count + 1;
+        var current = CollectedOf(state) + 1;
         var mapFaction = state.Offered.FirstOrDefault(static c => c.Fate != null)?.Fate.FactionId;
         var known = tracker?.OffersToCome(mapFaction, true) ?? 0;
 
-        return (current, Math.Max(MapCauldrons.PerMap(areaLevel, maps), current + known));
+        return (current, Math.Max(MapCauldrons.InArea(state.Counter, areaLevel), current + known));
     }
 
     /// <summary>
     /// The offers still to come for a Fate's faction while choosing: the larger of the count from the map's size
-    /// (MapCauldrons' setting for the area level, less the Fates collected, less the Cauldron being chosen at; a
-    /// fraction when the setting is one) and the Cauldrons the tracker knows not done. The count from the map's size is
-    /// what matters in play: Cauldrons are met one at a time and picked from at once, so when choosing the tracker has
-    /// seen only the Cauldron in front of the player. Future Cauldrons are taken to be of the offer's faction (every
-    /// map seen held one faction), so a Fate of another faction gets the tracker's count alone.
+    /// (MapCauldrons.InArea: the Fate counter's Cauldrons, or the fixed count for the area level, maybe a fraction;
+    /// less the Fates collected, less the Cauldron being chosen at) and the Cauldrons the tracker knows
+    /// not done. The count from the map's size is what matters in play: Cauldrons are met one at a time and picked from
+    /// at once, so when choosing the tracker has seen only the Cauldron in front of the player. Future Cauldrons are
+    /// taken to be of the offer's faction (every map seen held one faction), so a Fate of another faction gets the
+    /// tracker's count alone.
     /// </summary>
-    public static Func<string, double> OffersToComeFor(FatesPanelState state, int areaLevel, CauldronTracker tracker,
-        MapSettings maps)
+    public static Func<string, double> OffersToComeFor(FatesPanelState state, int areaLevel, CauldronTracker tracker)
     {
         var mapFaction = state.Offered.FirstOrDefault(static c => c.Fate != null)?.Fate.FactionId;
-        var fromMapSize = Math.Max(0d, MapCauldrons.PerMap(areaLevel, maps) - state.Collection.Count - 1);
+        var fromMapSize = Math.Max(0d, MapCauldrons.InArea(state.Counter, areaLevel) - CollectedOf(state) - 1);
 
         return faction =>
         {
@@ -97,6 +97,12 @@ internal static class FateScoring
             return Math.Max(known, sameFaction ? fromMapSize : 0d);
         };
     }
+
+    /// <summary>
+    /// The Fates collected in the area: the Fate counter's count when the panel shows one (the client's own, the
+    /// collection's length), else the collection row's visible cards.
+    /// </summary>
+    private static int CollectedOf(FatesPanelState state) => state.Counter?.Collected ?? state.Collection.Count;
 
     /// <summary>
     /// The best offered cards, by the Must take rule when it applies, else by value (FateScore.Value): when any card

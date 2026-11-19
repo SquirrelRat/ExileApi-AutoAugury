@@ -119,12 +119,13 @@ internal static class FateValues
         (first.Tier is { } tier ? settings.Fates.ScorePerTier.Value * TierInvokedAt(tier, copies) : 0);
 
     /// <summary>
-    /// The tier a Fate is invoked at: its own, one higher for a pair ("upgrading its tier"), and its own again for
-    /// three copies. Seen once, before 3.30.0b Hotfix 3: Incandescent of tier 2 read tier 3 with two copies placed and
-    /// tier 2 with three (2026-11-14 05:35). Whether the hotfix changed the tier of three copies, and whether a tier 3
-    /// Fate's pair goes above 3, is not known.
+    /// The tier a Fate is invoked at: its own, one higher for two or three copies. Read from the client's code (the
+    /// boss's invocation count, 3.30.0c, 2026-11-18): the second copy looks up the tier row for tier + 1 and keeps it
+    /// for the Fate, and a further copy changes no tier. Before 3.30.0b Hotfix 3 three copies read the Fate's own tier
+    /// (Incandescent, 2026-11-14 05:35). A tier 3 Fate's pair finds no tier 4 row, and what the game shows then is not
+    /// read; 4 is returned.
     /// </summary>
-    public static int TierInvokedAt(int tier, int copies) => copies == 2 ? tier + 1 : tier;
+    public static int TierInvokedAt(int tier, int copies) => copies >= 2 ? tier + 1 : tier;
 
     /// <summary>Two cards are copies of one Fate: the same catalogue Fate, or, unresolved, the same name.</summary>
     public static bool SameFate(FateCard a, FateCard b) =>

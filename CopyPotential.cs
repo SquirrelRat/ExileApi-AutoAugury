@@ -11,7 +11,8 @@ namespace AutoAugury;
 /// brings its own chance, rewards that need two or three copies included (a pair claims both, FateValues).
 ///
 /// For each Fate held once or twice: the chance the offers to come bring one more copy, or two, k offers each with a
-/// chance q = 3/N of showing the Fate (N the Fates of its faction, 7, 10 or 8; an offer shows a Fate at most once), k
+/// chance q = m/N of showing the Fate (m the Fates per Cauldron, the player's setting; N the Fates of its faction, 7,
+/// 10 or 8; an offer shows a Fate at most once; a fractional m is an average, and q is linear in it), k
 /// the offers to come from Cauldrons of its faction (FateScoring.OffersToComeFor; a fraction k + f, from a fractional
 /// Cauldron count, is k offers with chance 1 - f and k + 1 with chance f, the chances mixed); and the value of those
 /// copies, what they add to the best invocation (InvocationAdvisor, within the slots). A second copy pays nothing of
@@ -25,16 +26,13 @@ namespace AutoAugury;
 /// expected best, the Fates ordered by their value when they do get a copy, E1 + E2 (1 - P1) + E3 (1 - P1)(1 - P2) ...,
 /// with Ei a Fate's expected value and Pi its chance of another copy, taken as independent.
 ///
-/// Assumed, not measured: offers are three Fates of the Cauldron's faction drawn evenly. Not counted: a later card of
+/// Assumed, not measured: offers are m Fates of the Cauldron's faction drawn evenly. Not counted: a later card of
 /// another Fate carrying the same reward, which adds to its count (counts pool across Fates, FateValues), and a later
 /// copy's own rewards, better or worse than the weakest held copy's. With no offers to come the potential is 0 and a
 /// card is scored on its immediate gain alone.
 /// </summary>
 internal static class CopyPotential
 {
-    /// <summary>Fates per offer: every offer seen showed three (2026-11-14), of five card slots.</summary>
-    public const int FatesPerOffer = 3;
-
     /// <summary>The most copies of one Fate counted: three, the most that can be invoked (3.30.0b Hotfix 3).</summary>
     public const int MostCopies = 3;
 
@@ -48,12 +46,16 @@ internal static class CopyPotential
         public double AnyChance => Outcomes.Sum(static o => o.Chance);
     }
 
-    /// <summary>The chance one offer of its faction shows a given Fate: 3 in the faction's number of Fates.</summary>
-    public static double PerOfferChance(AuguryFate fate)
+    /// <summary>
+    /// The chance one offer of its faction shows a given Fate: the Fates per offer
+    /// (AutoAugurySettings.FatesPerCauldron; offers of 3 until 3.30.0c, of 3 and 4 since 3.30.0.4, of five card slots)
+    /// in the faction's number of Fates.
+    /// </summary>
+    public static double PerOfferChance(AuguryFate fate, double fatesPerOffer)
     {
         var factionSize = fate == null ? 0 : AuguryCatalogue.Fates.Count(f => f.FactionId == fate.FactionId);
 
-        return factionSize <= 0 ? 0d : Math.Min(1d, FatesPerOffer / (double)factionSize);
+        return factionSize <= 0 ? 0d : Math.Min(1d, fatesPerOffer / factionSize);
     }
 
     /// <summary>Each Fate held fewer than MostCopies times, with the copies it could gain and their chances.</summary>
@@ -72,7 +74,7 @@ internal static class CopyPotential
             if (held >= MostCopies || offers <= 0)
                 continue;
 
-            var perOffer = PerOfferChance(card.Fate);
+            var perOffer = PerOfferChance(card.Fate, settings.FatesPerCauldron.Value);
             var wholeOffers = (int)Math.Floor(offers);
             var oneMoreShare = offers - wholeOffers;
             var most = Math.Min(MostCopies - held, (int)Math.Ceiling(offers));

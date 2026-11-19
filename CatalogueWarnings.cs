@@ -26,7 +26,7 @@ internal static class CatalogueWarnings
     private const double WarningSeconds = 8d;
 
     /// <summary>Where the player sets a weight, as the messages say it.</summary>
-    private const string WhereToSet = "Set it in Reward weights.";
+    private const string WhereToSet = "Set it in the Rewards section.";
 
     /// <summary>The panel's title and card names at the last message check; empty while the panel is closed.</summary>
     private static string _cardsChecked = "";
@@ -62,7 +62,7 @@ internal static class CatalogueWarnings
                    $"{Shortened(NewRewardRegistry.LabelOf(resolution.Learned[0]))}. {WhereToSet}";
 
         if (resolution.Learned.Count > 1)
-            return $"{resolution.Learned.Count} new Fate rewards without a weight. Set them in Reward weights.";
+            return $"{resolution.Learned.Count} new Fate rewards without a weight. Set them in the Rewards section.";
 
         if (resolution.TextsUnrecognised)
             return "Fate rewards not recognised: the plugin needs an update.";
@@ -77,7 +77,7 @@ internal static class CatalogueWarnings
             return $"No weight for {Shortened(RewardFamilies.LabelOf(unweighted[0].Description))}. {WhereToSet}";
 
         if (unweighted.Count > 1)
-            return $"{unweighted.Count} new Fate rewards have no weight. Set them in Reward weights.";
+            return $"{unweighted.Count} new Fate rewards have no weight. Set them in the Rewards section.";
 
         return cards.FirstOrDefault(static c => c.Fate == null) is { } unknown
             ? $"Fate not in the plugin's data: {Shortened(unknown.Name)}"

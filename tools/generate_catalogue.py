@@ -89,20 +89,31 @@ def without_hard_mode(reward_id):
     return reward_id[len('HardMode'):] if reward_id.startswith('HardMode') else reward_id
 
 
+#: Families kept split whatever the rule finds, each with why. A family's Id keys saved weights and Must take marks,
+#: so a split, once shipped, stays.
+KEEP_SPLIT = {
+    # Split by the rule in 3.30.0c (both tier 3). 3.30.0.4 made the single Divine Orb need two copies (tier 2) and
+    # left "additional Divine Orbs" at three, so the same-tier test no longer finds them.
+    'CurrencyOpulentDivineOrb',
+}
+
+
 def families_of(rewards):
     """
     Each reward's family by Id: family_of, except where two rows of one family (outside the HardMode set) read
-    differently at overlapping area levels and the same tier. Those are two rewards, not one reward's level bands, and
-    each keeps its digit: CurrencyOpulentDivineOrb1 "an additional Divine Orb" and 2 "additional Divine Orbs", both
-    levels 68-100 (3.30.0c), the only such pair then. Elsewhere differing texts are one reward's level bands
-    ("additional" at low levels, "many additional" above), one family, so no family that existed before changes.
+    differently at overlapping area levels and the same tier, or the family is in KEEP_SPLIT. Those are two rewards,
+    not one reward's level bands, and each keeps its digit: CurrencyOpulentDivineOrb1 "an additional Divine Orb" and 2
+    "additional Divine Orbs", both levels 68-100 (3.30.0c), the only such pair then. Elsewhere differing texts are one
+    reward's level bands ("additional" at low levels, "many additional" above), one family, so no family that existed
+    before changes. The tier test is needed: without it RarityHigh1 and 2 (overlapping levels, different tiers) would
+    split (checked on the 3.30.0.3 and 3.30.0.4 tables, 2026-11-19).
     """
     by_family = {}
 
     for reward in rewards:
         by_family.setdefault(family_of(reward['Id']), []).append(reward)
 
-    split = set()
+    split = set(KEEP_SPLIT)
 
     for family, rows in by_family.items():
         normal = [r for r in rows if r['Unknown6'] != 3]
