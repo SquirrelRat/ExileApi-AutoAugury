@@ -19,9 +19,6 @@ namespace AutoAugury;
 /// </summary>
 public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
 {
-    /// <summary>The ConfigVersion a saved file reaches once every step in ApplySettingsChanges has run.</summary>
-    private const int CurrentConfigVersion = 0;
-
     /// <summary>How often the Fates panel is read, in ms. Chosen: the choice is made at human speed.</summary>
     private const int PanelReadIntervalMs = 100;
 
@@ -33,6 +30,15 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     /// </summary>
     private const int PluginOrder = 5001;
 
+    /// <summary>How long a message from SettingsChanges stays under the cursor: 8 s, the user's figure.</summary>
+    private const double SettingsChangeMessageSeconds = 8d;
+
+    /// <summary>
+    /// A message from SettingsChanges, held until the player is in game, so it is not shown at the HUD's start where
+    /// nobody would read it; null when none waits.
+    /// </summary>
+    private string _messageOnceInGame;
+
     private readonly FatesPanel _fatesPanel = new();
     private readonly Stopwatch _sincePanelRead = Stopwatch.StartNew();
 
@@ -43,7 +49,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     private FatesPanelState _panelState = FatesPanelState.Closed;
     private IReadOnlyList<FateScore> _scores = [];
     private InvocationGuide _guide = InvocationGuide.None;
-    private (int Current, int Total) _cauldronProgress;
+    private (int Current, double Total) _cauldronProgress;
 
     public AutoAugury() => Order = PluginOrder;
 
@@ -53,6 +59,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
         DumpFolder.ConfigDirectory = ConfigDirectory;
         RegisterHotkey(Settings.Debug.DumpHotkey);
         ApplySettingsChanges();
+        NewRewardRegistry.Tidy(Settings.Rewards);
         Settings.Rewards.ForgetWeightsAtDefault();
         CauldronMapIcons.LoadIcons(Graphics, DirectoryFullName);
 
@@ -60,16 +67,10 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     }
 
     /// <summary>
-    /// Brings a saved settings file up to date with changed defaults, once per change. No default has changed since the
-    /// plugin was published, so there are no steps yet; the first adds one and raises CurrentConfigVersion to 1.
+    /// Brings a saved settings file up to date with changed defaults, once per change (SettingsChanges), keeping any
+    /// message for the player until they are in game.
     /// </summary>
-    private void ApplySettingsChanges()
-    {
-        if (Settings.ConfigVersion >= CurrentConfigVersion)
-            return;
-
-        Settings.ConfigVersion = CurrentConfigVersion;
-    }
+    private void ApplySettingsChanges() => _messageOnceInGame = SettingsChanges.Apply(Settings);
 
     /// <summary>
     /// Tells Input about a hotkey so PressedOnce answers, and again whenever it is rebound in the menu. A key left
@@ -93,6 +94,13 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     /// <summary>ExileApi's Tick returns a job to run in the background; this plugin runs none.</summary>
     public override Job Tick()
     {
+        // Before the Enable check: a disabled plugin's player is told too.
+        if (_messageOnceInGame != null && Safe.Read(GameController, static g => g.InGame, false))
+        {
+            CursorMessage.Show(CursorMessage.Kind.Error, _messageOnceInGame, SettingsChangeMessageSeconds);
+            _messageOnceInGame = null;
+        }
+
         AnswerDebugTools();
 
         if (!Settings.Enable || !Safe.Read(GameController, static g => g.InGame, false))
@@ -107,16 +115,20 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
         {
             _sincePanelRead.Restart();
 
-            var state = _fatesPanel.Read(GameController);
-
-            _panelState = state;
             var areaLevel = Safe.Read(GameController, static g => g.Area.CurrentArea.RealLevel, 0);
+            var resolution = NewRewardRegistry.Resolve(_fatesPanel.Read(GameController), Settings.Rewards, areaLevel,
+                true);
+            var state = resolution.State;
+
+            CatalogueWarnings.Update(resolution, Settings.Rewards);
+            _panelState = state;
 
             _scores = state.ChoosingFate
-                ? FateScoring.Score(state, Settings, FateScoring.OffersToComeFor(state, areaLevel, Cauldrons))
+                ? FateScoring.Score(state, Settings,
+                    FateScoring.OffersToComeFor(state, areaLevel, Cauldrons, Settings.Maps))
                 : [];
             _cauldronProgress = state.ChoosingFate
-                ? FateScoring.CauldronProgressOf(state, areaLevel, Cauldrons)
+                ? FateScoring.CauldronProgressOf(state, areaLevel, Cauldrons, Settings.Maps)
                 : default;
             _guide = state.InvokingFates ? InvocationAdvisor.GuideFor(state, Settings) : InvocationGuide.None;
         }
@@ -179,5 +191,11 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
 
         if (display.ShowInvocationAdvice && _panelState.InvokingFates)
             FateOverlay.DrawGuide(Graphics, _guide, _panelState);
+
+        if (_panelState.Visible)
+        {
+            FateOverlay.DrawMustTakeRewards(Graphics, _panelState, Settings.Rewards);
+            FateOverlay.DrawRewardsWithoutWeight(Graphics, _panelState, Settings.Rewards);
+        }
     }
 }

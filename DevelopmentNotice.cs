@@ -24,8 +24,16 @@ internal static class DevelopmentNotice
         "Three copies of a Fate are counted as 3.30.0b Hotfix 3 describes (the first and third copies' rewards " +
         "tripled), not yet checked in game; their tier is taken to be the Fate's own, as it was before the hotfix.",
         "Offers are taken to be drawn evenly from the Fates of the Cauldron's faction.",
-        "The tier of 7 Fates cannot be read (Dryad, Gravewalker, Pestilent, Sadist, Savage, Tempest, Wildfire); it " +
+        "The tier of 7 Fates cannot be read off their card (Dryad, Gravewalker, Pestilent, Sadist, Savage, Tempest, " +
+        "Wildfire); it is taken from another card in the area, as every card in an area shows the same tier. It " +
         "only counts when Score per tier is not 0.",
+        "Must take rewards (by default Hinekora's Lock, Mirror Shard, Reflecting Mist, Fracturing Orb and Divine " +
+        "Orbs) decide the pick before the weights: with " +
+        "none held, the card with the weightiest one; with one held, the card that adds most to them, a lone copy " +
+        "of a three-copy reward counting a third. The default weights were set for 3.30.0c on 2026-11-19, the " +
+        "chase rewards starting from poe.ninja prices at 100 per Divine Orb.",
+        "Rewards a patch adds or rewords are learned the first time a card shows them and listed under Reward " +
+        "weights as new rewards. Each counts nothing until you set its weight; a message under the cursor says so.",
         "Hard mode rewards are in the game's data but have not been seen offered; they are taken to be Ruthless " +
         "only, and are weighted by their family's weight.",
     ];

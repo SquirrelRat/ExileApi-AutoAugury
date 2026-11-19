@@ -253,6 +253,41 @@ internal static class InvocationAdvisor
     }
 
     /// <summary>
+    /// The most the Must take rewards can hold (FateValues.MustTakeValue) in an invocation of at most slots of the
+    /// cards: every set of cards and every placing order of a Fate's copies tried, as Best tries them; 0 for none.
+    /// </summary>
+    public static double BestMustTakeValue(IReadOnlyList<FateCard> cards, int slots, AutoAugurySettings settings)
+    {
+        var tried = cards.Take(MostCards).ToList();
+        var best = 0d;
+
+        for (var mask = 1; mask < 1 << tried.Count; mask++)
+        {
+            if (int.PopCount(mask) > slots)
+                continue;
+
+            var orders = GroupsOf(Subset(tried, mask)).Select(g => PlacingOrdersOf(g, [])).ToList();
+            var choice = new int[orders.Count];
+
+            while (true)
+            {
+                best = Math.Max(best,
+                    FateValues.MustTakeValue(orders.Select((o, i) => new FateGroup(o[choice[i]])), settings));
+
+                var digit = 0;
+
+                while (digit < choice.Length && ++choice[digit] == orders[digit].Count)
+                    choice[digit++] = 0;
+
+                if (digit == choice.Length)
+                    break;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>
     /// The chosen cards' value and their Fates, each with its copies in placing order: the placed copies first, in slot
     /// order, as in the game; the rest in whichever order makes the invocation worth the most, every combination tried
     /// (with three slots, one Fate at most has more than one copy, so six orders at most).

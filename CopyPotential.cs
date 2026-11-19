@@ -12,13 +12,14 @@ namespace AutoAugury;
 ///
 /// For each Fate held once or twice: the chance the offers to come bring one more copy, or two, k offers each with a
 /// chance q = 3/N of showing the Fate (N the Fates of its faction, 7, 10 or 8; an offer shows a Fate at most once), k
-/// the offers to come from Cauldrons of its faction (FateScoring.OffersToComeFor); and the value of those copies, what
-/// they add to the best invocation (InvocationAdvisor, within the slots). A second copy pays nothing of its own, but a
-/// third counts its own rewards three times (3.30.0b Hotfix 3), so a copy to come needs rewards: it is taken to carry
-/// those of the weakest held copy of its Fate (the least as an empowered copy). Copies of one Fate have shared a
-/// reward (three Incandescent, each with three-copy Valuable Currency, 2026-11-14 05:35; two Houndmaster, each with
-/// Currency Items, 06:14), but the catalogue ties no reward to a Fate, so the held copies are only a sample; of two,
-/// the weaker is taken, so as not to count on the luckier.
+/// the offers to come from Cauldrons of its faction (FateScoring.OffersToComeFor; a fraction k + f, from a fractional
+/// Cauldron count, is k offers with chance 1 - f and k + 1 with chance f, the chances mixed); and the value of those
+/// copies, what they add to the best invocation (InvocationAdvisor, within the slots). A second copy pays nothing of
+/// its own, but a third counts its own rewards three times (3.30.0b Hotfix 3), so a copy to come needs rewards: it is
+/// taken to carry those of the weakest held copy of its Fate (the least as an empowered copy). Copies of one Fate have
+/// shared a reward (three Incandescent, each with three-copy Valuable Currency, 2026-11-14 05:35; two Houndmaster, each
+/// with Currency Items, 06:14), but the catalogue ties no reward to a Fate, so the held copies are only a sample; of
+/// two, the weaker is taken, so as not to count on the luckier.
 ///
 /// The Fates compete for the same offers and slots, so their expected values are not added: the potential is the
 /// expected best, the Fates ordered by their value when they do get a copy, E1 + E2 (1 - P1) + E3 (1 - P1)(1 - P2) ...,
@@ -41,7 +42,7 @@ internal static class CopyPotential
     public sealed record CopyOutcome(int More, int Value, double Chance);
 
     /// <summary>One held Fate's part in the potential, for the dump.</summary>
-    public sealed record CopyChance(FateCard Card, int Held, int OffersToCome, IReadOnlyList<CopyOutcome> Outcomes)
+    public sealed record CopyChance(FateCard Card, int Held, double OffersToCome, IReadOnlyList<CopyOutcome> Outcomes)
     {
         public double Expected => Outcomes.Sum(static o => o.Value * o.Chance);
         public double AnyChance => Outcomes.Sum(static o => o.Chance);
@@ -57,7 +58,7 @@ internal static class CopyPotential
 
     /// <summary>Each Fate held fewer than MostCopies times, with the copies it could gain and their chances.</summary>
     public static List<CopyChance> ChancesOf(IReadOnlyList<FateCard> collection, int slots, AutoAugurySettings settings,
-        Func<string, int> offersToCome)
+        Func<string, double> offersToCome)
     {
         var chances = new List<CopyChance>();
         var baseline = InvocationAdvisor.Best(collection, slots, settings).Total;
@@ -72,7 +73,9 @@ internal static class CopyPotential
                 continue;
 
             var perOffer = PerOfferChance(card.Fate);
-            var most = Math.Min(MostCopies - held, offers);
+            var wholeOffers = (int)Math.Floor(offers);
+            var oneMoreShare = offers - wholeOffers;
+            var most = Math.Min(MostCopies - held, (int)Math.Ceiling(offers));
             var outcomes = new List<CopyOutcome>();
 
             for (var more = 1; more <= most; more++)
@@ -81,9 +84,8 @@ internal static class CopyPotential
                 var copies = Enumerable.Repeat(card with { Rect = default, Placed = false }, more);
                 var value = InvocationAdvisor.Best(collection.Concat(copies).ToList(), slots, settings).Total -
                             baseline;
-                var chance = more < most
-                    ? Exactly(more, offers, perOffer)
-                    : AtLeast(more, offers, perOffer);
+                var chance = (1d - oneMoreShare) * ChanceOf(more, most, wholeOffers, perOffer) +
+                             oneMoreShare * ChanceOf(more, most, wholeOffers + 1, perOffer);
 
                 outcomes.Add(new CopyOutcome(more, Math.Max(0, value), chance));
             }
@@ -99,7 +101,7 @@ internal static class CopyPotential
 
     /// <summary>The expected value of the best copies the collection could still gain.</summary>
     public static double Of(IReadOnlyList<FateCard> collection, int slots, AutoAugurySettings settings,
-        Func<string, int> offersToCome)
+        Func<string, double> offersToCome)
     {
         var expected = 0d;
         var noneBefore = 1d;
@@ -132,7 +134,13 @@ internal static class CopyPotential
         return groups;
     }
 
-    /// <summary>The chance of exactly j successes in n tries of chance p.</summary>
+    /// <summary>
+    /// The chance of gaining exactly more copies in n offers, or at least more when more is the most counted.
+    /// </summary>
+    private static double ChanceOf(int more, int most, int n, double p) =>
+        more < most ? Exactly(more, n, p) : AtLeast(more, n, p);
+
+    /// <summary>The chance of exactly j successes in n tries of chance p; 0 when j is more than n.</summary>
     private static double Exactly(int j, int n, double p) =>
         Choose(n, j) * Math.Pow(p, j) * Math.Pow(1d - p, n - j);
 

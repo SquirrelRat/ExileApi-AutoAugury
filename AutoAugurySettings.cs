@@ -44,7 +44,7 @@ public class AutoAugurySettings : ISettings
     /// <summary>
     /// Which built-in changes this saved file has had applied. A saved file holds a value for every setting, so a
     /// changed default never reaches it on its own; a change that must reach saved files raises this and adds a step
-    /// to AutoAugury.ApplySettingsChanges. The same pattern as AutoExpedition's ConfigVersion.
+    /// to SettingsChanges. The same pattern as AutoExpedition's ConfigVersion.
     /// </summary>
     [IgnoreMenu]
     public int ConfigVersion { get; set; }
@@ -54,6 +54,9 @@ public class AutoAugurySettings : ISettings
 
     [Submenu(CollapsedByDefault = true)]
     public FateSettings Fates { get; set; } = new();
+
+    [Submenu(CollapsedByDefault = true)]
+    public MapSettings Maps { get; set; } = new();
 
     [Submenu(CollapsedByDefault = true)]
     public DisplaySettings Display { get; set; } = new();
@@ -89,7 +92,9 @@ public class AutoAugurySettings : ISettings
 
 /// <summary>
 /// The reward weights: what one reward of each family is worth to the player, the scale FateScoring adds up. Kept in a
-/// dictionary by family Id, holding only the weights the player changed; the rest are RewardFamilies' defaults.
+/// dictionary by family Id, holding only the weights the player changed; the rest are RewardFamilies' defaults. Also
+/// the rewards learned from the panel that the catalogue does not have (NewRewardRegistry), whose weights share the
+/// dictionary.
 /// </summary>
 public class RewardSettings
 {
@@ -101,15 +106,47 @@ public class RewardSettings
 
     /// <summary>
     /// The weights the player set, by reward family Id. A weight equal to its default is removed rather than kept, so
-    /// a changed default reaches every install that never set that family. ExileCore fills this on load without
-    /// replacing it, which for a dictionary sets each saved entry.
+    /// a changed default reaches every install that never set that family; a learned reward's weight is kept whatever
+    /// it is, since being here is what marks it set. ExileCore fills this on load without replacing it, which for a
+    /// dictionary sets each saved entry.
     /// </summary>
     [IgnoreMenu]
     public Dictionary<string, int> Weights { get; set; } = new();
 
     /// <summary>
-    /// A family's weight: the player's if set, else its default, 0 for an unknown family; held to the table's range,
-    /// 0 to 100 (a reward cannot be worth less than nothing; the first build allowed -100, so a saved value may be).
+    /// The rewards cards have shown that the catalogue does not have, learned by NewRewardRegistry, in the order they
+    /// were first seen. ExileCore fills this on load by adding the saved entries to the empty list;
+    /// NewRewardRegistry.Tidy drops repeats. A settings reset leaves it (it is not a node), and empties the weights.
+    /// </summary>
+    [IgnoreMenu]
+    public List<NewReward> NewRewards { get; set; } = new();
+
+    /// <summary>
+    /// The Must take marks the player changed, by family Id: true marks a family Must take, false clears a default
+    /// mark; the rest are RewardFamilies.MustTakeByDefault. A Must take reward decides the pick before the weights do
+    /// (MustTakeRule) and is framed purple on its card. A mark equal to its default is removed rather than kept.
+    /// </summary>
+    [IgnoreMenu]
+    public Dictionary<string, bool> MustTake { get; set; } = new();
+
+    /// <summary>Whether a family is Must take: the player's mark if set, else its default.</summary>
+    public bool IsMustTake(string family) =>
+        family != null &&
+        (MustTake.TryGetValue(family, out var marked) ? marked : RewardFamilies.MustTakeByDefault(family));
+
+    /// <summary>Marks a family Must take or not, keeping only a mark that differs from its default.</summary>
+    public void SetMustTake(string family, bool mustTake)
+    {
+        if (mustTake == RewardFamilies.MustTakeByDefault(family))
+            MustTake.Remove(family);
+        else
+            MustTake[family] = mustTake;
+    }
+
+    /// <summary>
+    /// A family's weight: the player's if set, else its default, 0 for an unknown or learned family; held to the
+    /// table's range, 0 to WeightTables.HighestRewardWeight (a reward cannot be worth less than nothing; the first
+    /// build allowed -100, so a saved value may be).
     /// </summary>
     public int WeightOf(string family) =>
         Math.Clamp(family != null && Weights.TryGetValue(family, out var weight)
@@ -123,14 +160,27 @@ public class RewardSettings
     /// <summary>
     /// Drops every saved weight equal to its family's default, so a weight saved before its default changed to the
     /// same value no longer counts as set (it would stay "changed" in the table, and keep a later default from it).
-    /// Run on every start; a family no longer in the catalogue is dropped too.
+    /// Run on every start, after NewRewardRegistry.Tidy; a family neither in the catalogue nor learned is dropped too.
+    /// The Must take marks are tidied the same way.
     /// </summary>
     public void ForgetWeightsAtDefault()
     {
+        var learned = NewRewards.Select(NewRewardRegistry.IdOf).ToHashSet();
+
         foreach (var family in Weights.Keys.ToList())
         {
+            if (learned.Contains(family))
+                continue;
+
             if (RewardFamilies.Of(family) is not { } known || Weights[family] == known.DefaultWeight)
                 Weights.Remove(family);
+        }
+
+        foreach (var family in MustTake.Keys.ToList())
+        {
+            if (!learned.Contains(family) && RewardFamilies.Of(family) == null ||
+                MustTake[family] == RewardFamilies.MustTakeByDefault(family))
+                MustTake.Remove(family);
         }
     }
 }
@@ -160,6 +210,25 @@ public class FateSettings
     public Dictionary<string, int> Weights { get; set; } = new();
 
     public int WeightOf(string fateId) => fateId != null && Weights.TryGetValue(fateId, out var weight) ? weight : 0;
+}
+
+/// <summary>
+/// How many Cauldrons a map is taken to hold, by its colour (MapCauldrons): what sets the offers still to come, and so
+/// the potential weight and "Estimated: 1/3". A fraction is an expectation, 3.5 being 3 or 4 Cauldrons equally likely.
+/// The defaults are those assumed before these settings (3, 4, 5); white maps were seen with 3, yellow with 3 or 4.
+/// </summary>
+public class MapSettings
+{
+    private const string FractionHelp = "A fraction such as 3.5 counts as 3 or 4, equally likely.\nCtrl+click to type.";
+
+    [Menu("Cauldrons in white maps", FractionHelp)]
+    public RangeNode<float> WhiteMapCauldrons { get; set; } = new(3f, 1f, 8f);
+
+    [Menu("Cauldrons in yellow maps", FractionHelp)]
+    public RangeNode<float> YellowMapCauldrons { get; set; } = new(4f, 1f, 8f);
+
+    [Menu("Cauldrons in red maps", FractionHelp)]
+    public RangeNode<float> RedMapCauldrons { get; set; } = new(5f, 1f, 8f);
 }
 
 public class DisplaySettings

@@ -90,12 +90,17 @@ internal static class AuguryCatalogueLookup
         return RewardsByTextAndTier.GetValueOrDefault((text, copiesNeeded)) ?? RewardsByText.GetValueOrDefault(text);
     }
 
-    /// <summary>A reward's text without the panel's copies note ("&lt;rgb(122,122,122)&gt;{To claim ...}").</summary>
-    private static string RewardText(string text)
-    {
-        var note = text.IndexOf("<rgb(", StringComparison.Ordinal);
+    /// <summary>
+    /// A reward's text as rewards are compared: without the panel's copies note, its whitespace collapsed.
+    /// </summary>
+    internal static string RewardText(string text) => Collapsed(WithoutCopiesNote(text));
 
-        return Collapsed(note >= 0 ? text[..note] : text);
+    /// <summary>A reward's text without the panel's copies note ("&lt;rgb(122,122,122)&gt;{To claim ...}").</summary>
+    internal static string WithoutCopiesNote(string text)
+    {
+        var note = (text ?? "").IndexOf("<rgb(", StringComparison.Ordinal);
+
+        return note >= 0 ? text[..note] : text ?? "";
     }
 
     private static string Collapsed(string text) => Regex.Replace(text ?? "", @"\s+", " ").Trim();

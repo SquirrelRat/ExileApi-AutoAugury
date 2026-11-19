@@ -50,8 +50,32 @@ internal static class FateValues
     /// </summary>
     public static int InvocationValue(IEnumerable<FateGroup> groups, AutoAugurySettings settings)
     {
+        var groupList = groups.ToList();
+        var preference = groupList.Sum(g => Preference(g.First, g.Copies.Count, settings));
+
+        return preference + CountsOf(groupList).Values
+            .Sum(e => e.Count / e.Needed * settings.Rewards.WeightOf(e.Reward.Family));
+    }
+
+    /// <summary>
+    /// What an invocation holds of the Must take rewards (RewardSettings.IsMustTake), for MustTakeRule: each one's
+    /// count as InvocationValue counts it, divided by the copies it needs without rounding down, times its weight. So
+    /// one copy of a three-copy reward holds a third of its weight and a pair all of it, and pairing a held Must take
+    /// Fate raises it from a third to the whole. Not what the boss pays: a lone copy of a three-copy reward claims
+    /// nothing there.
+    /// </summary>
+    public static double MustTakeValue(IEnumerable<FateGroup> groups, AutoAugurySettings settings) =>
+        CountsOf(groups.ToList()).Values
+            .Where(e => settings.Rewards.IsMustTake(e.Reward.Family))
+            .Sum(e => (double)e.Count / e.Needed * settings.Rewards.WeightOf(e.Reward.Family));
+
+    /// <summary>
+    /// Each reward's count over the groups' first copies (EmpoweredMultiple for a Fate with two or more copies, 1 for
+    /// one) and third copies (EmpoweredMultiple), by reward Id, with the most copies any card says it needs.
+    /// </summary>
+    private static Dictionary<string, (AuguryReward Reward, int Needed, int Count)> CountsOf(List<FateGroup> groups)
+    {
         var counts = new Dictionary<string, (AuguryReward Reward, int Needed, int Count)>();
-        var preference = 0;
 
         void Count(FateCard card, int multiple)
         {
@@ -72,12 +96,9 @@ internal static class FateValues
 
             if (group.Third != null)
                 Count(group.Third, EmpoweredMultiple);
-
-            preference += Preference(group.First, group.Copies.Count, settings);
         }
 
-        return preference +
-               counts.Values.Sum(e => e.Count / e.Needed * settings.Rewards.WeightOf(e.Reward.Family));
+        return counts;
     }
 
     /// <summary>

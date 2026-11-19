@@ -212,25 +212,27 @@ internal static class Dump
         b.AppendLine();
         b.AppendLine("== Fates panel, as the reader sees it");
 
-        var state = new FatesPanel().Read(gc);
+        var areaLevel = Safe.Read(gc, static g => g.Area.CurrentArea.RealLevel, 0);
+        var state = NewRewardRegistry.Resolve(new FatesPanel().Read(gc), settings.Rewards, areaLevel, false).State;
 
         b.AppendLine($"  visible {state.Visible}, title \"{state.Title}\", choosing a Fate {state.ChoosingFate}, " +
                      $"invoking Fates {state.InvokingFates}, {state.Offered.Count} named in the top row of " +
-                     $"{state.TopRowSlots.Count} visible, {state.Collection.Count} collected");
+                     $"{state.TopRowSlots.Count} visible, {state.Collection.Count} collected, hover lift " +
+                     (state.HoverLift > 0f ? $"{state.HoverLift:0} px" : "not read (no card hovered)"));
 
+        DescribeLearnedRewards(b, settings.Rewards);
         DescribeCauldrons(b, cauldrons);
         DescribeServerMinimapIcons(b, gc);
 
-        var areaLevel = Safe.Read(gc, static g => g.Area.CurrentArea.RealLevel, 0);
-        var offersToCome = FateScoring.OffersToComeFor(state, areaLevel, cauldrons);
+        var offersToCome = FateScoring.OffersToComeFor(state, areaLevel, cauldrons, settings.Maps);
         var mapFaction = state.Offered.FirstOrDefault(static c => c.Fate != null)?.Fate.FactionId;
 
         if (state.ChoosingFate)
         {
             var known = cauldrons?.OffersToCome(mapFaction, true) ?? 0;
 
-            b.AppendLine($"  offers to come for {mapFaction ?? "?"}: {offersToCome(mapFaction)} (area level " +
-                         $"{areaLevel}, assumed {MapCauldrons.Assumed(areaLevel)} Cauldrons, " +
+            b.AppendLine($"  offers to come for {mapFaction ?? "?"}: {offersToCome(mapFaction):0.##} (area level " +
+                         $"{areaLevel}, {MapCauldrons.PerMap(areaLevel, settings.Maps):0.##} Cauldrons as set, " +
                          $"{state.Collection.Count} collected, this one; the tracker knows {known} not done " +
                          "besides this one)");
         }
@@ -244,7 +246,8 @@ internal static class Dump
                     $"{o.More} more adds {o.Value} at {o.Chance:P0}"));
 
                 b.AppendLine($"  copy potential: {chance.Card.Name} (held {chance.Held}, " +
-                             $"{chance.OffersToCome} offer(s) to come): {outcomes}; expected {chance.Expected:0.#}");
+                             $"{chance.OffersToCome:0.##} offer(s) to come): {outcomes}; " +
+                             $"expected {chance.Expected:0.#}");
             }
         }
 
@@ -262,15 +265,23 @@ internal static class Dump
                              $"rect {Rect(card.Rect)}" + (card.Placed ? ", greyed (in a slot)" : "") +
                              (score == null
                                  ? ""
-                                 : $"; score {FateOverlay.ScoreLabelOf(score, true)}, unrounded {score.Value:0.##}"));
+                                 : $"; score {FateOverlay.ScoreLabelOf(score, true)}, unrounded {score.Value:0.##}" +
+                                   $", must take rank {score.MustTakeRank:0.##}" +
+                                   (FateScoring.BestOf(scores).Contains(score) ? ", BEST" : "")));
 
                 foreach (var reward in card.Rewards)
                 {
                     var family = reward.Reward?.Family;
+                    var learned = (!NewRewardRegistry.IsLearnedFamily(family)
+                                      ? ""
+                                      : NewRewardRegistry.LacksWeight(reward, settings.Rewards)
+                                          ? ", learned, no weight set"
+                                          : ", learned") +
+                                  (settings.Rewards.IsMustTake(family) ? ", must take" : "");
 
-                    b.AppendLine($"      reward {reward.Reward?.Id ?? "UNKNOWN"} (family {family ?? "-"}, " +
-                                 $"{reward.CopiesNeeded} copies, weight {settings.Rewards.WeightOf(family)}): " +
-                                 $"{OneLine(reward.Text)}");
+                    b.AppendLine($"      reward {reward.Reward?.Id ?? "UNKNOWN"} (family {family ?? "-"}{learned}, " +
+                                 $"{reward.CopiesNeeded} copies, weight {settings.Rewards.WeightOf(family)}, " +
+                                 $"icon {Rect(reward.Rect)}): {OneLine(reward.Text)}");
                 }
             }
         }
@@ -643,8 +654,33 @@ internal static class Dump
     }
 
     /// <summary>
+    /// The rewards learned from the panel that the catalogue does not have (NewRewardRegistry), each with its family
+    /// Id, copies, weight or "no weight", and when and at what area level it was first seen.
+    /// </summary>
+    private static void DescribeLearnedRewards(StringBuilder b, RewardSettings rewards)
+    {
+        var learned = rewards.NewRewards.Select(r =>
+        {
+            var id = NewRewardRegistry.IdOf(r);
+            var weight = rewards.Weights.TryGetValue(id, out var set) ? $"weight {set}" : "no weight";
+
+            return $"{id} \"{OneLine(r.Text)}\" ({r.CopiesNeeded} copies, {weight}, first seen {r.FirstSeen} " +
+                   $"at area level {r.FirstSeenAreaLevel})";
+        }).ToList();
+
+        b.AppendLine($"  learned rewards, not in the catalogue: {learned.Count}");
+
+        foreach (var line in learned)
+            b.AppendLine($"    {line}");
+    }
+
+    /// <summary>
     /// One entity in full. Returns its state without its position and distance, so the changes section shows what the
     /// mechanic changed rather than where the player walked.
+    ///
+    /// The id-keyed components (Entity.HashComponents) are listed by key only: components the client keeps under a
+    /// 16-bit id instead of a name, as PoE2's Expedition remnants keep their runes (component 0x87B2 in
+    /// ExileCore2-AutoExpedition). What sits behind a key is not read, as that would be a raw read.
     /// </summary>
     private static string DescribeEntity(StringBuilder b, Entity entity, Dictionary<uint, string> labels)
     {
@@ -681,6 +717,12 @@ internal static class Dump
         var components = Safe.Read(entity, static e => e.CacheComp?.Keys.OrderBy(static k => k).ToList(), null);
 
         Line($"components ({components?.Count.ToString() ?? "unreadable"}): {string.Join(", ", components ?? [])}");
+
+        var idKeyed = Safe.Read(entity, static e => e.HashComponents?.Keys.OrderBy(static k => k).ToList(), null);
+        var idKeyedWritten = idKeyed?.Select(static k => $"0x{k:X4}");
+
+        Line($"id-keyed components ({idKeyed?.Count.ToString() ?? "unreadable"}): " +
+             string.Join(", ", idKeyedWritten ?? []));
 
         if (Safe.Read(entity, static e => e.GetComponent<StateMachine>(), null) is { } stateMachine)
         {

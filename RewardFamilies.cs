@@ -30,9 +30,12 @@ internal static class RewardFamilies
     public const string RareItemsWithModifier = "Rare items with a modifier";
     public const string OtherItems = "Other items";
 
-    /// <summary>The categories in the order the settings list them.</summary>
+    /// <summary>
+    /// The categories in the order the settings list them: currency first, where the most valuable rewards are (the
+    /// user, 2026-11-18; uniques came first before).
+    /// </summary>
     public static readonly string[] Categories =
-        [UniqueItems, CurrencyAndLoot, Gems, RareItemsWithModifier, OtherItems];
+        [CurrencyAndLoot, UniqueItems, Gems, RareItemsWithModifier, OtherItems];
 
     public static readonly IReadOnlyList<RewardFamily> All = Build();
 
@@ -62,10 +65,19 @@ internal static class RewardFamilies
     }
 
     /// <summary>
+    /// Whether a family is Must take until the player says otherwise (RewardSettings.IsMustTake), on the user's
+    /// request (2026-11-18): Hinekora's Lock and the Mirror Shard, worth tens of divines, then Reflecting Mist, the
+    /// Fracturing Orb and both Divine Orb rewards.
+    /// </summary>
+    public static bool MustTakeByDefault(string family) =>
+        family is "CurrencyOpulentHinekorasLock" or "CurrencyOpulentMirrorShard" or "CurrencyOpulentReflectingMist"
+            or "CurrencyOpulentFractureOrb" or "CurrencyOpulentDivineOrb1" or "CurrencyOpulentDivineOrb2";
+
+    /// <summary>
     /// A short name from a reward's text: the first line less "Empowered Monster will drop" and the like, and the
     /// modifier from the second line in brackets: "additional Rare Boots (a Speed modifier)".
     /// </summary>
-    private static string LabelOf(string description)
+    internal static string LabelOf(string description)
     {
         var lines = (description ?? "").Replace("\r", "").Split('\n', StringSplitOptions.RemoveEmptyEntries);
         var first = lines.Length > 0 ? lines[0].Trim() : "";
@@ -112,30 +124,53 @@ internal static class RewardFamilies
 
     /// <summary>
     /// The default weights, on a scale where a weight is what one reward of the family is worth: the user's own weights
-    /// as set in game on 2026-11-14, taken as the defaults (the saved settings at 04:42, then at 06:50: Valuable Unique
-    /// Armour 16, Valuable Unique Weapon 15, and 2 for every rare item with a given modifier, plain equipment and rare
-    /// jewellery). StackedDecksLow (20) and ThreadsLow (10) are the first build's choices, which the user left. Every
-    /// family not named gets 2.
+    /// as saved at 2026-11-19 00:08:38, after the user's pass over the 3.30.0c rewards, taken as the defaults, every
+    /// family the user had not set keeping the default it had (as on 2026-11-14, when the user's weights of 04:42 and
+    /// 06:50 became the defaults). Every family not named gets 1, which most rare items with a given modifier have,
+    /// so a family a later patch adds starts at 1 until the catalogue is regenerated and it is weighted.
+    ///
+    /// The chase rewards 3.30.0c added for high tier maps (all needing three copies) started from poe.ninja's Covens
+    /// currency prices of 2026-11-18 at 100 per Divine Orb (a Divine Orb 219 chaos): Hinekora's Lock 63.71 divines,
+    /// 6371; Mirror Shard 26.78, 2678; Reflecting Mist 8.66, 866; Fracturing Orb 5.73, 573; a Divine Orb 100. The user
+    /// then set Divine Orbs (how many is not said) 300, a Sacred Orb 66, Orbs of Annulment 47 (the Id misspelt in the
+    /// game's data, CurrencyOpulemtAnnulemntOrb), an Orb of Annulment 21, Rare Amulets with a Gem modifier 5.
+    /// Saved settings from before this table are overwritten once (AutoAugury.ApplySettingsChanges, ConfigVersion 1).
     /// </summary>
     private static int DefaultWeightOf(string family) => family switch
     {
-        "ExceptionalGem" => 70,
+        "CurrencyOpulentHinekorasLock" => 6371,
+        "CurrencyOpulentMirrorShard" => 2678,
+        "CurrencyOpulentReflectingMist" => 866,
+        "CurrencyOpulentFractureOrb" => 573,
+        "CurrencyOpulentDivineOrb2" => 300,
+        "CurrencyOpulentDivineOrb1" => 100,
+        "CurrencyOpulentSacred" => 66,
         "CurrencyOpulent" => 65,
-        "UniqueJewelleryHigh" => 50,
-        "UniqueJewel" => 49,
         "StackedDecksHigh" => 48,
-        "CurrencyHigh" => 45,
-        "UniqueJewelleryLow" => 40,
-        "StackedDecksLow" => 20,
-        "CurrencyLow" => 19,
-        "ThreadsHigh" => 18,
+        "CurrencyOpulemtAnnulemntOrb" => 47,
+        "StackedDecksLow" => 46,
+        "UniqueJewelleryHigh" => 45,
+        "UniqueJewel" => 44,
+        "UniqueJewelleryLow" => 43,
+        "CurrencyLow" => 25,
+        "GoldLow" => 24,
+        "CurrencyOpulentAnnulmentOrb" => 21,
+        "CurrencyHigh" => 20,
+        "GoldHigh" => 19,
+        "ThreadsHigh" => 17,
         "UniqueArmourHigh" => 16,
         "RarityHigh" or "UniqueWeaponHigh" => 15,
-        "ForceViscera" or "RarityLow" or "GoldHigh" or "QualityGemHigh" or "ThreadsLow" => 10,
-        "UniqueArmourLow" or "UniqueFlask" or "UniqueWeaponLow" or "JewelleryLow" => 5,
-        "GoldLow" => 1,
-        "UniqueDoedresTongue" or "UniqueCorpseRose" or "UniqueThornbrew" or "UniqueVendigoPelt"
-            or "UniqueOrderedFate" or "MapsHigh" or "MapsLow" or "QualityGemLow" or "SkillGem" or "SupportGem" => 0,
-        _ => 2,
+        "ExceptionalGem" or "ForceViscera" or "RarityLow" or "ThreadsLow" => 10,
+        "AmuletTransformGems" or "JewelleryLow" or "UniqueArmourLow" or "UniqueFlask" or "UniqueWeaponLow" => 5,
+        "BootsTransformSpeed" => 3,
+        "AmuletTransformAttribute" or "BodyTransformDefence" or "BootsTransformNoDefence"
+            or "BootsTransformResistance" or "BowTransformCrit" or "BowTransformSpeed"
+            or "EquipmentDexArmourLow" or "EquipmentIntArmourLow" or "EquipmentMeleeWeaponLow"
+            or "EquipmentRangedWeaponLow" or "EquipmentStrArmourLow" or "QualityGemHigh" or "RareJewelleryLow"
+            or "SceptreTransformGems" or "StaffTransformGems" or "WandTransformGems"
+            or "WeaponTransformPhysical" => 2,
+        "MapsHigh" or "MapsLow" or "QualityGemLow" or "SkillGem" or "SupportGem" or "UniqueCorpseRose"
+            or "UniqueDoedresTongue" or "UniqueOrderedFate" or "UniqueThornbrew" or "UniqueVendigoPelt" => 0,
+        _ => 1,
     };
 }
