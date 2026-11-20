@@ -298,7 +298,8 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
                 _panelState.Visible, display.MarkOwedIcon.Value);
 
         if (display.MarkOwedInWorld)
-            CauldronWorldMarker.Draw(Graphics, GameController, Cauldrons.Cauldrons, _panelState.Visible);
+            CauldronWorldMarker.Draw(Graphics, GameController, Cauldrons.Cauldrons, _panelState.Visible,
+                display.WorldMarkerSize.Value / 100f);
 
         if (display.ShowScores)
         {

@@ -237,6 +237,13 @@ public class DisplaySettings
     public ToggleNode MarkOwedInWorld { get; set; } = new(true);
 
     /// <summary>
+    /// The world marker's size in percent of its designed size (ring radius 4 units, pillar 6 units tall). 150 to 200
+    /// reads across an arena; keep it under 300 so it does not cover the fight.
+    /// </summary>
+    [Menu("World marker size")]
+    public RangeNode<int> WorldMarkerSize { get; set; } = new(150, 50, 300);
+
+    /// <summary>
     /// The side of the larger Cauldron icon on the large map, in pixels; the icon's art is 64 px. The default, 40, was
     /// chosen.
     /// </summary>
