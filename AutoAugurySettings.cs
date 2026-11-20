@@ -118,7 +118,7 @@ public class RewardSettings
 
     /// <summary>
     /// A family's weight: the player's if set, else its default, 0 for an unknown family; held to the table's range,
-    /// 0 to 100 (a reward cannot be worth less than nothing; the first build allowed -100, so a saved value may be).
+    /// 0 to 4000 (a reward cannot be worth less than nothing; the first build allowed -100, so a saved value may be).
     /// </summary>
     public int WeightOf(string family) =>
         Math.Clamp(family != null && Weights.TryGetValue(family, out var weight)

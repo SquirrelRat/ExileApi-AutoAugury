@@ -76,6 +76,18 @@ public class RobustnessTests
     }
 
     [Fact]
+    public void ChaseWeights_OutrankValuableCurrencyAndAreNotClamped()
+    {
+        var settings = new AutoAugurySettings();
+
+        // Priced 2026-11-19 (Covens): Hinekora's Lock 12,474 chaos against a Divine Orb's 215, so on a scale where
+        // CurrencyOpulent's 65 is about one valuable currency drop. The table's top must hold them unclamped.
+        Assert.Equal(3750, settings.Rewards.WeightOf("ChaseHinekorasLock"));
+        Assert.True(settings.Rewards.WeightOf("ChaseMirrorShard") > settings.Rewards.WeightOf("CurrencyOpulent"));
+        Assert.True(settings.Rewards.WeightOf("ChaseAnnulmentOrb") < settings.Rewards.WeightOf("CurrencyOpulent"));
+    }
+
+    [Fact]
     public void Catalogue_CarriesExportStamp()
     {
         Assert.NotEqual("", AuguryCatalogue.ExportedAt);

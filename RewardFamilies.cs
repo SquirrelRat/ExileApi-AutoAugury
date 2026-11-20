@@ -131,6 +131,16 @@ internal static class RewardFamilies
     /// </summary>
     private static int DefaultWeightOf(string family) => family switch
     {
+        // The chase outcomes 3.30.0c added, priced against the defaults above on 2026-11-19 (Covens, poe.ninja
+        // chaos values): a Divine Orb was 215 and CurrencyOpulent's 65 was set when a valuable currency drop was
+        // worth about one, so a weight is roughly 3.3 chaos. Mirror Shard 6,670, Hinekora's Lock 12,474, Fracturing
+        // Orb 1,333, Reflecting Mist 732, Sacred Orb 20, Orb of Annulment 7.
+        "ChaseHinekorasLock" => 3750,
+        "ChaseMirrorShard" => 2000,
+        "ChaseFracturingOrb" => 400,
+        "ChaseReflectingMist" => 220,
+        "ChaseSacredOrb" => 6,
+        "ChaseAnnulmentOrb" => 2,
         "ExceptionalGem" => 70,
         "CurrencyOpulent" => 65,
         "UniqueJewelleryHigh" => 50,

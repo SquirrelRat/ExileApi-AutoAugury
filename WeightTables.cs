@@ -12,7 +12,7 @@ namespace AutoAugury;
 /// changed default reaches every install that never set it. Each table has a Ctrl-gated button that puts its weights
 /// back to their defaults.
 ///
-/// The reward table is a searchable, filterable list: a number box per reward family (0 to 100), a bar beside it sized
+/// The reward table is a searchable, filterable list: a number box per reward family (0 to 4000), a bar beside it sized
 /// against the highest reward weight, so weights compare at a glance (on a slider from -100 to 100 a weight of 3 and
 /// one of 8 sat in the same place), the copies the reward needs, the area level it starts at, and a reset for a weight
 /// that differs from its default. The Fate table keeps a slider per Fate from -100 to 100, grouped by faction, since a
@@ -21,7 +21,15 @@ namespace AutoAugury;
 internal static class WeightTables
 {
     public const int LowestRewardWeight = 0;
-    public const int HighestRewardWeight = 100;
+    /// <summary>
+    /// The top of the reward scale. A weight is what one claim of the reward is worth, on a scale where the catalogue's
+    /// defaults ran 0 to 70 until 2026-11-19; a chase outcome such as a Mirror Shard (6,670 chaos when the Covens
+    /// prices were read, against a Divine Orb's 215) needs far more than 100 to be ranked above the rest.
+    /// </summary>
+    public const int HighestRewardWeight = 4000;
+
+    /// <summary>How far one pixel of drag moves a reward weight: the 0 to 100 range's quarter step, scaled to this one.</summary>
+    private const float DragSpeed = HighestRewardWeight / 400f;
 
     private const int LowestFateWeight = -100;
     private const int HighestFateWeight = 100;
@@ -131,7 +139,7 @@ internal static class WeightTables
     private static void DrawBulkSet(RewardSettings settings, List<RewardFamily> shown)
     {
         ImGui.SetNextItemWidth(70f);
-        ImGui.DragInt("###autoauguryRewardBulkWeight", ref _bulkRewardWeight, 0.25f, LowestRewardWeight,
+        ImGui.DragInt("###autoauguryRewardBulkWeight", ref _bulkRewardWeight, DragSpeed, LowestRewardWeight,
             HighestRewardWeight, "%d", ImGuiSliderFlags.AlwaysClamp);
         ImGui.SameLine();
 
@@ -225,15 +233,17 @@ internal static class WeightTables
         ImGui.TableNextColumn();
         ImGui.SetNextItemWidth(-1f);
 
-        if (ImGui.DragInt($"###autoauguryReward{family.Id}", ref weight, 0.25f, LowestRewardWeight, HighestRewardWeight,
-                "%d", ImGuiSliderFlags.AlwaysClamp))
+        if (ImGui.DragInt($"###autoauguryReward{family.Id}", ref weight, DragSpeed, LowestRewardWeight,
+                HighestRewardWeight, "%d", ImGuiSliderFlags.AlwaysClamp))
             Save(settings.Weights, family.Id, weight, family.DefaultWeight);
 
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Drag, or double-click to type.");
 
         ImGui.TableNextColumn();
-        ImGui.ProgressBar(weight / (float)highest, new Vector2(-1f, 0f), "");
+
+        // Square-rooted: with the chase outcomes in the thousands, a rare item's weight of 2 would show no bar at all.
+        ImGui.ProgressBar(MathF.Sqrt(weight / (float)highest), new Vector2(-1f, 0f), "");
 
         ImGui.TableNextColumn();
 
