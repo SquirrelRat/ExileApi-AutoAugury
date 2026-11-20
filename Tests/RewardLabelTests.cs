@@ -13,15 +13,22 @@ public class RewardLabelTests
     [InlineData("Empowered Monster will drop additional Threads", "Threads")]
     [InlineData("Empowered Monster will drop additional Gold", "Gold")]
     [InlineData("Empowered Monster will drop many additional Threads", "Threads")]
-    [InlineData("Empowered Monster will drop an additional Mirror Shard", "Mirror Shard")]
+    [InlineData("Empowered Monster will drop an additional Mirror Shard", "Mirror")]
     [InlineData("Empowered Monster will drop additional Rare Belts\n" +
-                "Belts dropped by Empowered Monster will have an Elemental modifier", "Belts: Elemental")]
+                "Belts dropped by Empowered Monster will have an Elemental modifier", "Belt:Elem")]
     [InlineData("Empowered Monster will drop additional Rare Helmets\n" +
-                "Helmets dropped by Empowered Monster will have a Defence modifier", "Helmets: Defence")]
+                "Helmets dropped by Empowered Monster will have a Defence modifier", "Helm:Def")]
     [InlineData("Empowered Monster will drop additional Rare Amulets\n" +
-                "Amulets dropped by Empowered Monster will have a Gem modifier", "Amulets: Gem")]
+                "Amulets dropped by Empowered Monster will have a Gem modifier", "Amulet:Gem")]
     [InlineData("Empowered Monster will drop additional Rare Swords\n" +
-                "Swords dropped by Empowered Monster will have no Physical modifiers", "Swords: no Physical")]
+                "Swords dropped by Empowered Monster will have no Physical modifiers", "Sword:noPhys")]
+    [InlineData("Empowered Monster will drop additional Rare Melee Weapons\n" +
+                "Melee Weapons dropped by Empowered Monster will have a Critical modifier", "Melee:Crit")]
+    [InlineData("Empowered Monster has a chance to drop additional Rare Armour items with Intelligence requirements",
+        "Arm:Int")]
+    [InlineData("Empowered Monster will drop additional Rare Body Armours\n" +
+                "Body Armours dropped by Empowered Monster will have a Chaos modifier", "Body:Chaos")]
+    [InlineData("Empowered Monster will drop additional Valuable Currency Items", "Curr")]
     public void Of_NamesTheDropAndItsModifier(string description, string expected)
     {
         Assert.Equal(expected, RewardLabels.Of(description));
@@ -30,8 +37,8 @@ public class RewardLabelTests
     [Fact]
     public void Join_KeepsIconOrderAndDropsRepeats()
     {
-        Assert.Equal("Threads / Belts: Elemental",
-            RewardLabels.Join(["Threads", "Belts: Elemental", "Threads", ""]));
+        Assert.Equal("Threads / Belt:Elem",
+            RewardLabels.Join(["Threads", "Belt:Elem", "Threads", ""]));
     }
 
     [Fact]
@@ -50,8 +57,8 @@ public class RewardLabelTests
         Assert.Equal(4, entries.Count);
         Assert.All(entries, e => Assert.Equal(3, e.Multiplier));
         Assert.Equal("Threads", RewardLabels.Of(entries[0].Text));
-        Assert.Equal("Helmets: Defence", RewardLabels.Of(entries[2].Text));
-        Assert.Equal("Belts: Elemental", RewardLabels.Of(entries[3].Text));
+        Assert.Equal("Helm:Def", RewardLabels.Of(entries[2].Text));
+        Assert.Equal("Belt:Elem", RewardLabels.Of(entries[3].Text));
     }
 
     [Fact]
