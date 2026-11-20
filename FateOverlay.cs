@@ -249,6 +249,101 @@ internal static class FateOverlay
     }
 
     /// <summary>
+    /// The reward legend under each offered card's icons (Display > Label rewards): the drop's name, with the modifier
+    /// a rare item will carry, in icon order. Wrapped to a second line when three rewards do not fit, and kept above
+    /// the confirm button when a card sits over it.
+    /// </summary>
+    public static void DrawRewardLabels(Graphics graphics, FatesPanelState state)
+    {
+        if (!state.ChoosingFate || state.Offered.Count == 0)
+            return;
+
+        var lineHeight = LineHeightOf(graphics);
+
+        foreach (var card in state.Offered)
+        {
+            var text = RewardLabels.Join(card.Rewards.Select(static r => RewardLabels.Of(r.Text)));
+
+            if (text.Length == 0)
+                continue;
+
+            var lines = Wrap(graphics, text, card.Rect.Width - 16f, 2);
+            var bottom = card.Rect.Bottom + 2f + lines.Count * lineHeight;
+
+            if (state.ConfirmButton.Width > 0f &&
+                card.Rect.X < state.ConfirmButton.Right && card.Rect.Right > state.ConfirmButton.X)
+                bottom = Math.Min(bottom, state.ConfirmButton.Y - 2f);
+
+            for (var i = 0; i < lines.Count; i++)
+                graphics.DrawTextWithBackground(lines[i],
+                    new Vector2(card.Rect.X + card.Rect.Width / 2f, bottom - (lines.Count - i) * lineHeight),
+                    OtherColour, FontAlign.Center, Background);
+        }
+    }
+
+    /// <summary>
+    /// The boss summary's legend, under the strip (Display > Label rewards): one line per reward the panel lists,
+    /// "Threads 3x", named by RewardLabels and counted by the panel's own multiplier. The strip repeats an icon per
+    /// count, so this says in words what the icons only repeat.
+    /// </summary>
+    public static void DrawSummaryLegend(Graphics graphics, FatesPanelState state)
+    {
+        if (!state.InvokingFates || state.SummaryLines.Count == 0)
+            return;
+
+        var rect = state.SummaryRect;
+
+        if (rect.Width <= 0f || rect.Height <= 0f)
+            return;
+
+        var lineHeight = LineHeightOf(graphics);
+
+        for (var i = 0; i < state.SummaryLines.Count; i++)
+        {
+            var (multiplier, text) = state.SummaryLines[i];
+            var label = RewardLabels.Of(text);
+
+            if (label.Length == 0)
+                continue;
+
+            graphics.DrawTextWithBackground($"{label} {multiplier}x",
+                new Vector2(rect.X, rect.Bottom + 4f + i * lineHeight), TextColour, FontAlign.Left, Background);
+        }
+    }
+
+    /// <summary>
+    /// The text split into at most <paramref name="mostLines"/> lines no wider than the card, on the " / " separator
+    /// RewardLabels.Join writes. A piece longer than the card stays whole rather than being cut mid-word.
+    /// </summary>
+    private static List<string> Wrap(Graphics graphics, string text, float maxWidth, int mostLines)
+    {
+        var lines = new List<string>();
+        var current = "";
+
+        foreach (var part in text.Split(" / ", StringSplitOptions.RemoveEmptyEntries))
+        {
+            var candidate = current.Length == 0 ? part : $"{current} / {part}";
+
+            if (current.Length == 0 || graphics.MeasureText(candidate).X <= maxWidth)
+            {
+                current = candidate;
+                continue;
+            }
+
+            lines.Add(current);
+            current = part;
+
+            if (lines.Count == mostLines - 1)
+                break;
+        }
+
+        if (current.Length > 0)
+            lines.Add(current);
+
+        return lines;
+    }
+
+    /// <summary>
     /// "Estimated: 1/3 (tracked)" to the left of the panel's close button while choosing: the Cauldron being chosen
     /// at, of the map's estimated Cauldrons (FateScoring.CauldronProgressOf), and where the total comes from.
     /// </summary>

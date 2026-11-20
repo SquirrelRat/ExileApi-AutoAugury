@@ -73,6 +73,15 @@ internal sealed record FatesPanelState(bool Visible, string Title, IReadOnlyList
     /// </summary>
     public (int Collected, int Available)? FatesCounter { get; init; }
 
+    /// <summary>
+    /// The boss panel's reward summary as text ("3x &lt;reward&gt;" per reward, FateSummaryText.Parse): what the summary
+    /// strip's icons stand for and the multiplier the game applies. Empty while choosing.
+    /// </summary>
+    public IReadOnlyList<(int Multiplier, string Text)> SummaryLines { get; init; } = [];
+
+    /// <summary>The rectangle the summary strip's visible icons span; empty when the strip is not shown.</summary>
+    public RectangleF SummaryRect { get; init; }
+
     /// <summary>Whether the panel offers a Cauldron's Fates to choose from.</summary>
     public bool ChoosingFate => Visible && Title == ChoosingTitle;
 
@@ -133,11 +142,58 @@ internal sealed class FatesPanel
         if (rows.Count > 1)
             (collection, _) = CardsOf(rows[1]);
 
+        var summary = SummaryOf(ChildAt(body, 8));
+
         return new FatesPanelState(true, TitleOf(panel), offered, collection, slots,
             VisibleRectOf(ConfirmButtonOf(body)), VisibleRectOf(ChildAt(panel, 3)))
         {
             FatesCounter = CounterOf(body),
+            SummaryLines = summary.Lines,
+            SummaryRect = summary.Rect,
         };
+    }
+
+    /// <summary>
+    /// The summary strip's text entries and the rectangle its visible icons span. The strip's own element holds no
+    /// text: the long line is one of its children (read past Element.Text's 256-character stop), the icons sit in two
+    /// groups of children below it.
+    /// </summary>
+    private static (List<(int Multiplier, string Text)> Lines, RectangleF Rect) SummaryOf(Element summary)
+    {
+        var lines = new List<(int Multiplier, string Text)>();
+        var rect = default(RectangleF);
+        var any = false;
+
+        if (summary == null)
+            return (lines, rect);
+
+        foreach (var child in Safe.ChildrenOf(summary) ?? [])
+        {
+            var raw = Safe.Read(child, static c => c.Text, null);
+
+            if (!string.IsNullOrWhiteSpace(raw) && raw.Contains('x'))
+                lines.AddRange(FateSummaryText.Parse(Safe.Read(child, static c => c.GetText(4096), null)));
+
+            foreach (var icon in Safe.ChildrenOf(child) ?? [])
+            {
+                if (!Safe.Read(icon, static i => i.IsVisible, false))
+                    continue;
+
+                var iconRect = Safe.Read(icon, static i => i.GetClientRectCache, default(RectangleF));
+
+                if (iconRect.Width <= 0f || iconRect.Height <= 0f)
+                    continue;
+
+                rect = any
+                    ? new RectangleF(Math.Min(rect.X, iconRect.X), Math.Min(rect.Y, iconRect.Y),
+                        Math.Max(rect.Right, iconRect.Right) - Math.Min(rect.X, iconRect.X),
+                        Math.Max(rect.Bottom, iconRect.Bottom) - Math.Min(rect.Y, iconRect.Y))
+                    : iconRect;
+                any = true;
+            }
+        }
+
+        return (lines, rect);
     }
 
     /// <summary>

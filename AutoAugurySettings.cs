@@ -237,6 +237,14 @@ public class DisplaySettings
     public ToggleNode MarkOwedInWorld { get; set; } = new(true);
 
     /// <summary>
+    /// Whether rewards are named on the panel: a legend under each offered card's icons ("Belts: Elemental"), and, at
+    /// the boss, one line per reward under the summary strip with the panel's multiplier ("Threads 3x"). See
+    /// FateOverlay.DrawRewardLabels and DrawSummaryLegend.
+    /// </summary>
+    [Menu("Label rewards")]
+    public ToggleNode LabelRewards { get; set; } = new(true);
+
+    /// <summary>
     /// The world marker's size in percent of its designed size (ring radius 4 units, pillar 6 units tall). 150 to 200
     /// reads across an arena; keep it under 300 so it does not cover the fight.
     /// </summary>

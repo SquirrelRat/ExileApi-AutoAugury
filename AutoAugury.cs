@@ -309,6 +309,12 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
                 FateOverlay.DrawCauldronProgress(Graphics, _panelState, _cauldronProgress);
         }
 
+        if (display.LabelRewards)
+        {
+            FateOverlay.DrawRewardLabels(Graphics, _panelState);
+            FateOverlay.DrawSummaryLegend(Graphics, _panelState);
+        }
+
         if (display.ShowInvocationAdvice && _panelState.InvokingFates)
             FateOverlay.DrawGuide(Graphics, _guide, _panelState, display);
 
