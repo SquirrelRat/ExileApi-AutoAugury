@@ -50,10 +50,12 @@ internal sealed record FateCard(string Name, AuguryFate Fate, int? Tier, Rectang
 /// empty slot shows as a card frame with its name hidden (three at the boss of 2026-11-14 03:38).
 /// </param>
 /// <param name="ConfirmButton">
-/// The confirm button's rectangle ([2,9], 193x45 below the top row in both views); empty when it is not visible.
+/// The confirm button's rectangle (166x38 below the top row in both views on 2026-11-19), found by its "confirm"
+/// label; empty when it is not visible.
 /// </param>
 /// <param name="CloseButton">
-/// The close button's rectangle ([3], 37x37 at the panel's top right in both views); empty when it is not visible.
+/// The close button's rectangle (the panel's child [3], 31x31 at its top right on 2026-11-19); empty when it is not
+/// visible.
 /// </param>
 internal sealed record FatesPanelState(bool Visible, string Title, IReadOnlyList<FateCard> Offered,
     IReadOnlyList<FateCard> Collection, IReadOnlyList<RectangleF> TopRowSlots, RectangleF ConfirmButton,
@@ -63,6 +65,13 @@ internal sealed record FatesPanelState(bool Visible, string Title, IReadOnlyList
     public const string InvokingTitle = "Invoke Fates";
 
     public static readonly FatesPanelState Closed = new(false, "", [], [], [], default, default);
+
+    /// <summary>
+    /// The game's own count of the area's Fates, from the "0/3" element 3.30.0d added to the panel body: how many are
+    /// collected, and how many the area offers. Read as ground truth where the tracker would estimate the same
+    /// (FateScoring.CauldronProgressOf). Null when the element is not there or does not read.
+    /// </summary>
+    public (int Collected, int Available)? FatesCounter { get; init; }
 
     /// <summary>Whether the panel offers a Cauldron's Fates to choose from.</summary>
     public bool ChoosingFate => Visible && Title == ChoosingTitle;
@@ -76,12 +85,14 @@ internal sealed record FatesPanelState(bool Visible, string Title, IReadOnlyList
 /// collection's Fates are invoked, as the game shows them. Only visible elements count: the panel reuses its elements,
 /// and hidden ones keep earlier cards' names and rewards (dumps of 2026-11-14).
 ///
-/// The layout, read off dumps of 2026-11-14 (the panel while choosing, and at the boss): the panel is a
-/// child of IngameUi whose index moves as other panels open, recognised by its title, child 2's child 3: "Fates" while
-/// choosing, "Invoke Fates" at the boss. Below child 2: [5,0] the top row (the offer, or the invocation slots), [6,0]
-/// the collection, [7] a reward summary (hidden while choosing, visible at the boss), [9] the confirm button. A card
-/// k's content is [k,0,0]: [4] its name, [8,0] its reward icons, each icon's child [3] the reward's text; the card
-/// element's Tooltip holds its full text.
+/// The layout, read off the dumps of 2026-11-14 (the panel while choosing, and at the boss) and 2026-11-19 (choosing,
+/// after the 3.30.x patch): the panel is a child of IngameUi whose index moves as other panels open, recognised by its
+/// title, child 2's child 3: "Fates" while choosing, "Invoke Fates" at the boss. Below child 2 the card rows are found
+/// by the cards they hold, not by their index (CardRowsOf): the first is the top row (the offer, or the invocation
+/// slots at the boss), the second the collection. The 2026-11-19 patch added a copies counter ("0/3") at [5] and moved
+/// the rows from [5,0] and [6,0] to [6,0] and [7,0], the summary to [8] and the confirm button to [10]; finding them
+/// by shape takes such an insertion without a change. A card k's content is [k,0,0]: [4] its name, [8,0] its reward
+/// icons, each icon's child [3] the reward's text; the card element's Tooltip holds its full text.
 /// </summary>
 internal sealed class FatesPanel
 {
@@ -110,12 +121,112 @@ internal sealed class FatesPanel
             return FatesPanelState.Closed;
 
         var body = ChildAt(panel, 2);
+        var rows = CardRowsOf(body);
 
-        var top = CardsOf(ChildAt(body, 5, 0));
-        var bottom = CardsOf(ChildAt(body, 6, 0));
+        var offered = new List<FateCard>();
+        var slots = new List<RectangleF>();
+        var collection = new List<FateCard>();
 
-        return new FatesPanelState(true, TitleOf(panel), top.Cards, bottom.Cards, top.Slots,
-            VisibleRectOf(ChildAt(body, 9)), VisibleRectOf(ChildAt(panel, 3)));
+        if (rows.Count > 0)
+            (offered, slots) = CardsOf(rows[0]);
+
+        if (rows.Count > 1)
+            (collection, _) = CardsOf(rows[1]);
+
+        return new FatesPanelState(true, TitleOf(panel), offered, collection, slots,
+            VisibleRectOf(ConfirmButtonOf(body)), VisibleRectOf(ChildAt(panel, 3)))
+        {
+            FatesCounter = CounterOf(body),
+        };
+    }
+
+    /// <summary>
+    /// The game's own "collected/available" Fates count, the "0/3" element 3.30.0d added to the body: the body child
+    /// whose own child reads two numbers around a slash. Null when none does (an older client, or a moved element).
+    /// </summary>
+    private static (int Collected, int Available)? CounterOf(Element body)
+    {
+        foreach (var holder in Safe.ChildrenOf(body) ?? [])
+        {
+            var text = Safe.Read(ChildAt(holder, 0), static e => e?.Text, null);
+
+            if (text == null)
+                continue;
+
+            var parts = text.Trim().Split('/');
+
+            if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out var collected) &&
+                int.TryParse(parts[1].Trim(), out var available))
+                return (collected, available);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The panel's card rows, top down: a body child holding a row of cards, the offer (or the invocation slots at the
+    /// boss) first, the collection second. Found by the cards' shape rather than by index, so a patch that inserts an
+    /// element above them (as 2026-11-19 did with the copies counter) moves nothing the reader depends on. At most two
+    /// are taken, which also bounds the scan to the rows in practice.
+    /// </summary>
+    private static List<Element> CardRowsOf(Element body)
+    {
+        var rows = new List<Element>();
+
+        foreach (var holder in Safe.ChildrenOf(body) ?? [])
+        {
+            var row = ChildAt(holder, 0);
+
+            if (row == null || !IsCardRow(row))
+                continue;
+
+            rows.Add(row);
+
+            if (rows.Count == 2)
+                break;
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// Whether an element holds cards: one child whose child 0,0 has a card's content — 9 or more children, a name at
+    /// [4] and the reward icons at [8]. The rows' leftover cards count, hidden or not, as the game keeps them.
+    /// </summary>
+    private static bool IsCardRow(Element row)
+    {
+        foreach (var card in Safe.ChildrenOf(row) ?? [])
+        {
+            var content = ChildAt(card, 0, 0);
+
+            if (content == null || (Safe.ChildrenOf(content)?.Count ?? 0) < 9)
+                continue;
+
+            if (ChildAt(content, 4) != null && ChildAt(content, 8) != null)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// The confirm button: the body's visible child whose own child 0 reads "confirm", the button's label. Empty when
+    /// none does, and the invocation guide's hint goes under the slots instead of beside the button.
+    /// </summary>
+    private static Element ConfirmButtonOf(Element body)
+    {
+        foreach (var child in Safe.ChildrenOf(body) ?? [])
+        {
+            if (!Safe.Read(child, static c => c.IsVisible, false))
+                continue;
+
+            var text = Safe.Read(ChildAt(child, 0), static l => l?.Text, null);
+
+            if (string.Equals(text?.Trim(), "confirm", StringComparison.OrdinalIgnoreCase))
+                return child;
+        }
+
+        return null;
     }
 
     /// <summary>An element's rectangle while it is visible; empty otherwise.</summary>
@@ -164,6 +275,14 @@ internal sealed class FatesPanel
     public static bool ReadsEmpty(FatesPanelState state) =>
         state.Visible && state.TopRowSlots.Count == 0 && state.Offered.Count == 0 &&
         state.Collection.Count == 0;
+
+    /// <summary>
+    /// Whether the panel offers Fates to choose from but no offered card read: the offer row was not found, which is
+    /// what a layout change does (2026-11-19: a counter inserted above the rows left the cards reading as the
+    /// collection, so ReadsEmpty stayed quiet while the overlay drew nothing).
+    /// </summary>
+    public static bool ReadsNoOffers(FatesPanelState state) =>
+        state.ChoosingFate && state.Offered.Count == 0;
 
     /// <summary>The text of child 2's child 3, where the Fates panel has its title; null when there is none.</summary>
     private static string TitleOf(Element panel) => Safe.Read(ChildAt(panel, 2, 3), static t => t?.Text, null);

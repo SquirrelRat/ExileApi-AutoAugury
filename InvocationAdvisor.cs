@@ -67,9 +67,10 @@ internal sealed record InvocationAdvice(IReadOnlyList<InvocationPick> Picks, int
 /// The value of an invocation is FateValues.InvocationValue: each Fate counts its first copy's rewards, three times
 /// over when a second copy empowers it, the copies that empower paying nothing (the panel: "This Fate slot is being
 /// used to empower a previously played Fate, tripling the rewards granted by it and upgrading its tier, but nullifying
-/// the rewards of the Fate in this slot"); a reward is claimed once per the copies it needs. The better copy goes
-/// first, which is why the order matters; the order between different Fates does not, so they are placed by what they
-/// add. A third copy adds nothing, so it is never advised over an empty slot; a Fate whose weight makes it worth less
+/// the rewards of the Fate in this slot"); a reward is claimed once per the copies it needs. With three copies of one
+/// Fate the third pays three times over as well, the second still nullified (3.30.0b Hotfix 3, measured 2026-11-19),
+/// so a third copy is worth a tripled card. The better copy goes first, which is why the order matters; the order
+/// between different Fates does not, so they are placed by what they add. A Fate whose weight makes it worth less
 /// than nothing is left out, leaving a slot empty.
 ///
 /// Cards already placed are fixed: they are in every set tried, they come first in the order, in slot order, and the
@@ -308,8 +309,13 @@ internal static class InvocationAdvisor
         {
             var (group, adds) = added.First(a => a.Group.Copies.Any(c => ReferenceEquals(c, card)));
             var isFirst = ReferenceEquals(card, group.First);
+            var isThird = !isFirst && group.Copies.Count >= 3 &&
+                          ReferenceEquals(card, FateValues.CountedCopies(group, settings)
+                              .Skip(1).Select(static c => c.Card).FirstOrDefault());
 
-            picks.Add(new InvocationPick(card, picks.Count + 1, isFirst ? null : group.First, isFirst ? adds : 0));
+            picks.Add(new InvocationPick(card, picks.Count + 1,
+                isFirst || isThird ? null : group.First,
+                isFirst ? adds : isThird ? FateValues.RewardsValue(card, FateValues.EmpoweredMultiple, settings) : 0));
         }
 
         foreach (var card in placed.Where(p => groups.Any(g => g.Copies.Any(c => ReferenceEquals(c, p)))))
@@ -317,7 +323,7 @@ internal static class InvocationAdvisor
 
         foreach (var (group, _) in added.OrderByDescending(static a => a.Adds))
         {
-            foreach (var card in group.Copies.OrderBy(c => ReferenceEquals(c, group.First) ? 0 : 1))
+            foreach (var card in FateValues.PlacingOrder(group, settings))
             {
                 if (!picks.Any(p => ReferenceEquals(p.Card, card)))
                     Add(card);

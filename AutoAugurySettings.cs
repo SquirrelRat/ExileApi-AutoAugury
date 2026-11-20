@@ -260,7 +260,7 @@ public class DisplaySettings
     }
 
     /// <summary>Not saved: whether the sample scores show (Display > Preview overlay on screen).</summary>
-    [JsonIgnore]
+    [JsonIgnore, IgnoreMenu]
     public bool PreviewScores { get; set; }
 
     [JsonIgnore]

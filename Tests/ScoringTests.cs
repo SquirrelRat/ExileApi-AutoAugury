@@ -34,6 +34,50 @@ public class ScoringTests
     }
 
     [Fact]
+    public void InvocationValue_TriplesTheThirdCopyToo()
+    {
+        var settings = Settings();
+        var fate = AuguryCatalogue.Fates.First(f => f.Id == "Crowkeeper");
+        var low = AuguryCatalogue.Rewards.First(r => r.Id == "CurrencyLow1");
+        var high = AuguryCatalogue.Rewards.First(r => r.Id == "CurrencyHigh1");
+
+        FateCard With(AuguryReward reward) =>
+            new("Crowkeeper", fate, 1, default, [new FateCardReward("shown", reward, 1)], false);
+
+        var first = With(low);
+        var second = With(low);
+        var third = With(high);
+
+        var pair = FateValues.InvocationValue([new FateGroup([first, second], first)], settings);
+        var triple = FateValues.InvocationValue([new FateGroup([first, second, third], first)], settings);
+
+        // 3.30.0b Hotfix 3: the third copy pays three times over, the second nothing (measured 2026-11-19).
+        Assert.Equal(3 * settings.Rewards.WeightOf("CurrencyHigh"), triple - pair);
+    }
+
+    [Fact]
+    public void PlacingOrder_PutsTheNullifiedCopyInTheMiddle()
+    {
+        var settings = Settings();
+        var fate = AuguryCatalogue.Fates.First(f => f.Id == "Crowkeeper");
+        var low = AuguryCatalogue.Rewards.First(r => r.Id == "CurrencyLow1");
+        var high = AuguryCatalogue.Rewards.First(r => r.Id == "CurrencyHigh1");
+
+        FateCard With(AuguryReward reward) =>
+            new("Crowkeeper", fate, 1, default, [new FateCardReward("shown", reward, 1)], false);
+
+        var first = With(low);
+        var second = With(low);
+        var third = With(high);
+
+        var order = FateValues.PlacingOrder(new FateGroup([first, second, third], first), settings);
+
+        Assert.Same(first, order[0]);
+        Assert.Same(second, order[1]);
+        Assert.Same(third, order[2]);
+    }
+
+    [Fact]
     public void Best_PoolsRewardCountsAcrossFates()
     {
         var settings = Settings();

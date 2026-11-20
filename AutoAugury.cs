@@ -57,6 +57,9 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     // Empty open-panel reads in a row; the warning fires once the panel has read empty for about five seconds.
     private int _emptyPanelReads;
 
+    // Choosing reads in a row with no offered card; the warning fires after about five seconds the same way.
+    private int _noOfferReads;
+
     /// <summary>100 ms reads after which an open-but-empty panel is reported (a patch may have moved it).</summary>
     private const int EmptyPanelWarningAfter = 50;
 
@@ -139,6 +142,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
             NoteSlots(state);
             NoteOfferSize(state);
             NoteEmptyPanel(state);
+            NoteNoOffers(state);
 
             // The scores cost subsets and copy potentials: recompute only when the cards, the weights or the
             // tracker changed. The guide rides the same gate; its placed cards are in the fingerprint.
@@ -225,6 +229,24 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
                 "the panel; take Debug > Write a dump now and check the element tree.", 10f);
     }
 
+    /// <summary>
+    /// Counts choosing reads that offered nothing: the panel always offers Fates while its title reads "Fates", so
+    /// repeats mean the offer row was not found and the cards that did read were the collection. The overlay would
+    /// draw nothing and no other warning would fire, which is what made the 2026-11-19 patch silent.
+    /// </summary>
+    private void NoteNoOffers(FatesPanelState state)
+    {
+        if (!FatesPanel.ReadsNoOffers(state))
+        {
+            _noOfferReads = 0;
+            return;
+        }
+
+        if (++_noOfferReads == EmptyPanelWarningAfter)
+            DebugWindow.LogMsg("[AutoAugury] The Fates panel offers Fates but no offered card read. A patch may " +
+                "have inserted an element above the offer row; take Debug > Write a dump now and check the tree.", 10f);
+    }
+
     private void ForgetPanel()
     {
         _panelState = FatesPanelState.Closed;
@@ -232,6 +254,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
         _guide = InvocationGuide.None;
         _lastScoreFingerprint = null;
         _emptyPanelReads = 0;
+        _noOfferReads = 0;
     }
 
     /// <summary>

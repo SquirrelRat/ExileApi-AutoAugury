@@ -14,17 +14,30 @@ internal static class AuguryCatalogueLookup
 {
     private static readonly Dictionary<string, AuguryFate> FatesByName = BuildFatesByName();
 
+    /// <summary>The catalogue's reward outcomes with the ones read from a later client (AuguryCatalogueSupplement).</summary>
+    private static readonly AuguryReward[] Rewards =
+        [.. AuguryCatalogue.Rewards, .. AuguryCatalogueSupplement.Rewards];
+
     /// <summary>
     /// Each reward by its text without the copies note and its tier, the first row of each (a family's level bands
     /// share a text). No key is shared by two families in the export of 2026-11-14. A text alone is not enough: "will
     /// drop additional Currency Items" is CurrencyLow at tier 1 and CurrencyHigh at tier 2.
     /// </summary>
-    private static readonly Dictionary<(string Text, int Tier), AuguryReward> RewardsByTextAndTier = AuguryCatalogue
-        .Rewards
-        .GroupBy(static r => (RewardText(r.Description), r.Tier))
-        .ToDictionary(static g => g.Key, static g => g.First());
+    private static readonly Dictionary<(string Text, int Tier), AuguryReward> RewardsByTextAndTier =
+        BuildByTextAndTier();
 
-    private static readonly Dictionary<string, AuguryReward> RewardsByText = AuguryCatalogue.Rewards
+    private static Dictionary<(string Text, int Tier), AuguryReward> BuildByTextAndTier()
+    {
+        var byTextAndTier = new Dictionary<(string Text, int Tier), AuguryReward>();
+
+        // First wins: the export's rows before the supplement's, and a supplement row never overrides one.
+        foreach (var reward in Rewards)
+            byTextAndTier.TryAdd((RewardText(reward.Description), reward.Tier), reward);
+
+        return byTextAndTier;
+    }
+
+    private static readonly Dictionary<string, AuguryReward> RewardsByText = Rewards
         .GroupBy(static r => RewardText(r.Description))
         .ToDictionary(static g => g.Key, static g => g.OrderBy(static r => r.Tier).First());
 

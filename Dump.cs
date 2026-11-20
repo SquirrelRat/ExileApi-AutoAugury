@@ -154,7 +154,8 @@ internal static class Dump
     {
         b.AppendLine($"AutoAugury (PoE1) dump - {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
         b.AppendLine($"plugin enabled: {settings.Enable.Value}");
-        b.AppendLine($"catalogue: tables exported {AuguryCatalogue.ExportedAt}, decoded by {AuguryCatalogue.Schema}");
+        b.AppendLine($"catalogue: tables exported {AuguryCatalogue.ExportedAt}, decoded by {AuguryCatalogue.Schema}" +
+                     $", plus {AuguryCatalogueSupplement.Rewards.Length} reward rows read {AuguryCatalogueSupplement.ReadAt}");
 
         var pattern = EntityPatternOf(settings, out var patternNote);
 
@@ -205,6 +206,41 @@ internal static class Dump
     }
 
     /// <summary>
+    /// The boss panel's reward summary, which the game builds as "3x &lt;reward&gt;" per reward: the multipliers the
+    /// patch notes talk about (3.30.0b Hotfix 3, three copies of one Fate) are only here. Read whole, since
+    /// Element.Text stops at 256 characters and the summary runs past that with four or more rewards.
+    /// </summary>
+    private static string RewardSummaryText(GameController gc)
+    {
+        var ingameUi = Safe.Read(gc, static g => (Element)g.IngameState.IngameUi, null);
+
+        foreach (var panel in Safe.ChildrenOf(ingameUi) ?? [])
+        {
+            if (!FatesPanel.IsFatesPanel(panel))
+                continue;
+
+            var body = Safe.Read(panel, static p => p.Children.Count > 2 ? p.Children[2] : null, null);
+            var container = Safe.Read(body, static b => b.Children.Count > 8 ? b.Children[8] : null, null);
+
+            // The summary's own element holds no text: its children do, one long line (the claims) among the icons'
+            // descriptions. The line is the longest of them.
+            string longest = null;
+
+            foreach (var child in Safe.ChildrenOf(container) ?? [])
+            {
+                var text = Safe.Read(child, static c => c.GetText(4096), null);
+
+                if (text != null && text.Length > (longest?.Length ?? 0))
+                    longest = text;
+            }
+
+            return longest?.Replace("\r", "").Replace("\n", " | ").Trim();
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// The Fates panel as FatesPanel reads it and FateScoring scores it, first in the file because it is what the
     /// plugin acts on: each card's name, catalogue Fate, tier and rewards with their families, copies and weights.
     /// </summary>
@@ -219,6 +255,9 @@ internal static class Dump
         b.AppendLine($"  visible {state.Visible}, title \"{state.Title}\", choosing a Fate {state.ChoosingFate}, " +
                      $"invoking Fates {state.InvokingFates}, {state.Offered.Count} named in the top row of " +
                      $"{state.TopRowSlots.Count} visible, {state.Collection.Count} collected");
+
+        if (state.InvokingFates && RewardSummaryText(gc) is { Length: > 0 } summary)
+            b.AppendLine($"  reward summary: {summary}");
 
         DescribeCauldrons(b, cauldrons);
         DescribeServerMinimapIcons(b, gc);

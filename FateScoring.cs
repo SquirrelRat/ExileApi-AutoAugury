@@ -54,6 +54,11 @@ internal static class FateScoring
     public static (int Current, int Total, string Source) CauldronProgressOf(FatesPanelState state, int areaLevel,
         CauldronTracker tracker)
     {
+        // The game counts the area's Fates itself ("0/3", 3.30.0d): one Fate per Cauldron, so the panel is at the
+        // Cauldron after those collected, of the area's total. Ground truth where it reads.
+        if (state.FatesCounter is { Available: > 0 } counter)
+            return (Math.Min(counter.Collected + 1, counter.Available), counter.Available, "game");
+
         var current = state.Collection.Count + 1;
         var mapFaction = state.Offered.FirstOrDefault(static c => c.Fate != null)?.Fate.FactionId;
         var known = tracker?.OffersToCome(mapFaction, true) ?? 0;

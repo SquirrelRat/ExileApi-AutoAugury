@@ -85,6 +85,15 @@ public class CauldronCountsTests
     }
 
     [Fact]
+    public void CauldronProgressOf_UsesTheGamesOwnCount()
+    {
+        var state = ChoosingState() with { FatesCounter = (1, 4) };
+        var progress = FateScoring.CauldronProgressOf(state, 70, new CauldronTracker());
+
+        Assert.Equal((2, 4, "game"), progress);
+    }
+
+    [Fact]
     public void CauldronProgressOf_ReportsObservedSource()
     {
         var tracker = new CauldronTracker();
