@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Numerics;
 using Xunit;
 
 namespace AutoAugury.Tests;
@@ -85,6 +86,24 @@ public class RobustnessTests
         Assert.Equal(3750, settings.Rewards.WeightOf("ChaseHinekorasLock"));
         Assert.True(settings.Rewards.WeightOf("ChaseMirrorShard") > settings.Rewards.WeightOf("CurrencyOpulent"));
         Assert.True(settings.Rewards.WeightOf("ChaseAnnulmentOrb") < settings.Rewards.WeightOf("CurrencyOpulent"));
+    }
+
+    [Fact]
+    public void WorldMarker_DrawsOnlyOwedCauldronsWithAPosition()
+    {
+        TrackedCauldron At(uint id, CauldronStage stage, Vector2? grid) =>
+            new(id, "Savage", stage, 10f, grid, true, true, []);
+
+        var owed = CauldronWorldMarker.OwedOf(
+        [
+            At(1, CauldronStage.Owed, new Vector2(10, 20)),
+            At(2, CauldronStage.NotOwed, new Vector2(30, 40)),
+            At(3, CauldronStage.Done, new Vector2(50, 60)),
+            At(4, CauldronStage.Owed, null),
+        ]);
+
+        Assert.Single(owed);
+        Assert.Equal(1u, owed[0].Id);
     }
 
     [Fact]

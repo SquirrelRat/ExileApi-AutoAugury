@@ -229,6 +229,14 @@ public class DisplaySettings
     public ToggleNode DrawLargerMinimapIcon { get; set; } = new(true);
 
     /// <summary>
+    /// Whether the Cauldron whose choice waits is also marked in the world: a ring on the ground at its base and
+    /// "READY" above it, the same signal Mark owed Cauldron icon frames on the map. Hidden while the Fates panel is
+    /// open, where the player is already at it. See CauldronWorldMarker.
+    /// </summary>
+    [Menu("Mark owed Cauldron in the world")]
+    public ToggleNode MarkOwedInWorld { get; set; } = new(true);
+
+    /// <summary>
     /// The side of the larger Cauldron icon on the large map, in pixels; the icon's art is 64 px. The default, 40, was
     /// chosen.
     /// </summary>

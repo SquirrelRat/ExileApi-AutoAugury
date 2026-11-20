@@ -297,6 +297,9 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
             CauldronMapIcons.Draw(Graphics, GameController, Cauldrons.Cauldrons, display.MinimapIconSize.Value,
                 _panelState.Visible, display.MarkOwedIcon.Value);
 
+        if (display.MarkOwedInWorld)
+            CauldronWorldMarker.Draw(Graphics, GameController, Cauldrons.Cauldrons, _panelState.Visible);
+
         if (display.ShowScores)
         {
             FateOverlay.DrawScores(Graphics, _scores, display);
