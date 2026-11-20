@@ -236,20 +236,52 @@ public class DisplaySettings
     [Menu("Mark owed Cauldron in the world")]
     public ToggleNode MarkOwedInWorld { get; set; } = new(true);
 
+    /// <summary>The heading the world marker's controls are drawn under.</summary>
+    [JsonIgnore]
+    public CustomNode WorldMarkerGroup { get; set; } = Section.Of("Owed Cauldron in the world");
+
     /// <summary>
-    /// Whether rewards are named on the panel: a legend under each offered card's icons ("Belts: Elemental"), and, at
-    /// the boss, one line per reward under the summary strip with the panel's multiplier ("Threads 3x"). See
+    /// Whether the frame is drawn around the Cauldron. It is sized in pixels, so it stays the same size at any
+    /// distance; the ring and the beam stay in the world.
+    /// </summary>
+    [Menu("Draw frame")]
+    public ToggleNode WorldMarkerFrame { get; set; } = new(true);
+
+    /// <summary>The frame's width in pixels at the Cauldron's base.</summary>
+    [Menu("Frame width")]
+    public RangeNode<int> WorldMarkerFrameWidth { get; set; } = new(110, 40, 400);
+
+    /// <summary>The frame's height in pixels above the Cauldron's base.</summary>
+    [Menu("Frame height")]
+    public RangeNode<int> WorldMarkerFrameHeight { get; set; } = new(150, 60, 600);
+
+    /// <summary>The frame's stroke width in pixels.</summary>
+    [Menu("Frame thickness")]
+    public RangeNode<int> WorldMarkerFrameThickness { get; set; } = new(3, 1, 8);
+
+    /// <summary>Whether the ring on the ground is drawn, which shows the spot even where the terrain slopes.</summary>
+    [Menu("Draw ground ring")]
+    public ToggleNode WorldMarkerRing { get; set; } = new(true);
+
+    /// <summary>The ground ring's radius in world units (the player is about one unit wide).</summary>
+    [Menu("Ring radius")]
+    public RangeNode<float> WorldMarkerRingRadius { get; set; } = new(6f, 1f, 20f);
+
+    /// <summary>Whether the beam of stacked rings is drawn above the Cauldron.</summary>
+    [Menu("Draw beam")]
+    public ToggleNode WorldMarkerBeam { get; set; } = new(true);
+
+    /// <summary>The beam's height in world units.</summary>
+    [Menu("Beam height")]
+    public RangeNode<float> WorldMarkerBeamHeight { get; set; } = new(10f, 1f, 40f);
+
+    /// <summary>
+    /// Whether rewards are named on the panel: a legend under each offered card's icons ("Belt:Elem"), and, at the
+    /// boss, one line per reward under the summary strip with the panel's multiplier ("Threads 3x"). See
     /// FateOverlay.DrawRewardLabels and DrawSummaryLegend.
     /// </summary>
     [Menu("Label rewards")]
     public ToggleNode LabelRewards { get; set; } = new(true);
-
-    /// <summary>
-    /// The world marker's size in percent of its designed size (ring radius 4 units, pillar 6 units tall). 150 to 200
-    /// reads across an arena; keep it under 300 so it does not cover the fight.
-    /// </summary>
-    [Menu("World marker size")]
-    public RangeNode<int> WorldMarkerSize { get; set; } = new(150, 50, 300);
 
     /// <summary>
     /// The side of the larger Cauldron icon on the large map, in pixels; the icon's art is 64 px. The default, 40, was

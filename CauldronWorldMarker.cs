@@ -18,25 +18,10 @@ namespace AutoAugury;
 /// </summary>
 internal static class CauldronWorldMarker
 {
-    /// <summary>The ring's radius in world units, at 100% (Display > World marker size).</summary>
-    private const float RingRadius = 6f;
-
     /// <summary>Segments: enough to read as a circle at the distances the marker is useful from.</summary>
     private const int RingSegments = 64;
 
     private const float RingThickness = 5f;
-
-    /// <summary>How tall the pillar of fading rings stands, in world units at 100%.</summary>
-    private const float PillarHeight = 10f;
-
-    private const int PillarRings = 10;
-
-    /// <summary>The frame's size in pixels at 100%, so it does not shrink with distance.</summary>
-    private const float FrameWidth = 110f;
-
-    private const float FrameHeight = 150f;
-
-    private const float FrameThickness = 3f;
 
     /// <summary>How far above the frame's top the label sits, in pixels.</summary>
     private const float LabelGap = 4f;
@@ -47,11 +32,19 @@ internal static class CauldronWorldMarker
     private static readonly Color LabelBackground = Colours.FromArgb(210, 0, 0, 0);
 
     /// <param name="fatesPanelOpen">Whether the last read found the Fates panel open (FatesPanelState.Visible).</param>
-    /// <param name="scale">The marker's size, 1 at 100% (Display > World marker size).</param>
+    /// <param name="display">The Display settings: what the marker draws and its sizes (Display > Owed Cauldron in the
+    /// world).</param>
     public static void Draw(Graphics graphics, GameController gc, IReadOnlyList<TrackedCauldron> cauldrons,
-        bool fatesPanelOpen, float scale)
+        bool fatesPanelOpen, DisplaySettings display)
     {
-        if (cauldrons.Count == 0 || fatesPanelOpen)
+        if (cauldrons.Count == 0 || fatesPanelOpen || display == null)
+            return;
+
+        var drawRing = display.WorldMarkerRing.Value;
+        var drawBeam = display.WorldMarkerBeam.Value;
+        var drawFrame = display.WorldMarkerFrame.Value;
+
+        if (!drawRing && !drawBeam && !drawFrame)
             return;
 
         var owed = OwedOf(cauldrons);
@@ -65,13 +58,11 @@ internal static class CauldronWorldMarker
         if (data == null || camera == null)
             return;
 
-        scale = Math.Clamp(scale, 0.5f, 3f);
-
-        var radius = RingRadius * scale;
-        var height = PillarHeight * scale;
-        var thickness = RingThickness * MathF.Sqrt(scale);
+        var radius = display.WorldMarkerRingRadius.Value;
+        var height = display.WorldMarkerBeamHeight.Value;
+        var rings = Math.Clamp((int)(height * 1.2f), 4, 24);
         var up = new Vector3(0f, 0f, 1f);
-        var width = Safe.Read(camera, static c => c.Width, 0);
+        var screenWidth = Safe.Read(camera, static c => c.Width, 0);
         var screenHeight = Safe.Read(camera, static c => c.Height, 0);
 
         // A gentle pulse, so the marker reads in a busy fight without flashing.
@@ -85,36 +76,44 @@ internal static class CauldronWorldMarker
 
             var world = Safe.Read(data, d => d.ToWorldWithTerrainHeight(grid), default(Vector3));
 
-            // A soft disc under the ring, so the base reads even where the ground is dark.
-            graphics.DrawFilledCircleInWorld(world, radius, Colours.FromArgb(45, OwedColour), RingSegments, true);
-            graphics.DrawCircleInWorld(world, radius, pulsed, thickness, RingSegments, true);
-
-            // The pillar: rings stacked up, fading and shrinking, which reads as a beam from across the arena.
-            for (var i = 1; i <= PillarRings; i++)
+            if (drawRing)
             {
-                var faded = Colours.FromArgb((int)(170f * (1f - (float)i / (PillarRings + 1)) * pulse), OwedColour);
-
-                graphics.DrawCircleInWorld(world + up * (height * i / PillarRings), radius * (1f - 0.05f * i),
-                    faded, thickness * 0.7f, RingSegments, false);
+                // A soft disc under the ring, so the base reads even where the ground is dark.
+                graphics.DrawFilledCircleInWorld(world, radius, Colours.FromArgb(45, OwedColour), RingSegments, true);
+                graphics.DrawCircleInWorld(world, radius, pulsed, RingThickness, RingSegments, true);
             }
+
+            // The beam: rings stacked up, fading and shrinking, which reads from across the arena.
+            if (drawBeam)
+            {
+                for (var i = 1; i <= rings; i++)
+                {
+                    var faded = Colours.FromArgb((int)(170f * (1f - (float)i / (rings + 1)) * pulse), OwedColour);
+
+                    graphics.DrawCircleInWorld(world + up * (height * i / rings), radius * (1f - 0.05f * i), faded,
+                        RingThickness * 0.7f, RingSegments, false);
+                }
+            }
+
+            if (!drawFrame)
+                continue;
 
             var basePoint = Safe.Read(camera, c => c.WorldToScreen(world), default(Vector2));
 
             // The frame is in pixels, so it has to be kept to the viewport itself: a point behind the camera projects
             // outside it, and a frame drawn there would hang in the middle of the screen.
-            if (width <= 0 || screenHeight <= 0 ||
-                basePoint.X < 0f || basePoint.X > width || basePoint.Y < 0f || basePoint.Y > screenHeight)
+            if (screenWidth <= 0 || screenHeight <= 0 ||
+                basePoint.X < 0f || basePoint.X > screenWidth || basePoint.Y < 0f || basePoint.Y > screenHeight)
                 continue;
 
-            var frameWidth = FrameWidth * scale;
-            var frameHeight = FrameHeight * scale;
+            var frameWidth = display.WorldMarkerFrameWidth.Value;
+            var frameHeight = display.WorldMarkerFrameHeight.Value;
             var frame = new RectangleF(basePoint.X - frameWidth / 2f, basePoint.Y - frameHeight, frameWidth,
                 frameHeight);
 
-            graphics.DrawFrame(frame, pulsed, (int)Math.Max(2f, FrameThickness * MathF.Sqrt(scale)));
-            graphics.DrawTextWithBackground("READY",
-                new Vector2(frame.X + frame.Width / 2f, frame.Y - LabelGap), OwedColour, FontAlign.Center,
-                LabelBackground);
+            graphics.DrawFrame(frame, pulsed, display.WorldMarkerFrameThickness.Value);
+            graphics.DrawTextWithBackground("READY", new Vector2(frame.X + frame.Width / 2f, frame.Y - LabelGap),
+                OwedColour, FontAlign.Center, LabelBackground);
         }
     }
 
