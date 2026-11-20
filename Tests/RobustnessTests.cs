@@ -64,6 +64,18 @@ public class RobustnessTests
     }
 
     [Fact]
+    public void Supplement_FamiliesCarryAWeight()
+    {
+        var settings = new AutoAugurySettings();
+
+        foreach (var reward in AuguryCatalogueSupplement.Rewards)
+        {
+            Assert.NotNull(RewardFamilies.Of(reward.Family));
+            Assert.True(settings.Rewards.WeightOf(reward.Family) > 0, reward.Id);
+        }
+    }
+
+    [Fact]
     public void Catalogue_CarriesExportStamp()
     {
         Assert.NotEqual("", AuguryCatalogue.ExportedAt);

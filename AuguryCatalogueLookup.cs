@@ -15,8 +15,7 @@ internal static class AuguryCatalogueLookup
     private static readonly Dictionary<string, AuguryFate> FatesByName = BuildFatesByName();
 
     /// <summary>The catalogue's reward outcomes with the ones read from a later client (AuguryCatalogueSupplement).</summary>
-    private static readonly AuguryReward[] Rewards =
-        [.. AuguryCatalogue.Rewards, .. AuguryCatalogueSupplement.Rewards];
+    private static readonly AuguryReward[] Rewards = AuguryRewards.All;
 
     /// <summary>
     /// Each reward by its text without the copies note and its tier, the first row of each (a family's level bands

@@ -49,14 +49,14 @@ internal static class RewardFamilies
         if (familyId == null || ById.GetValueOrDefault(familyId) == null)
             return false;
 
-        return AuguryCatalogue.Rewards.Where(r => r.Family == familyId).All(static r => r.HardMode);
+        return AuguryRewards.All.Where(r => r.Family == familyId).All(static r => r.HardMode);
     }
 
     private static List<RewardFamily> Build()
     {
         var families = new List<RewardFamily>();
 
-        foreach (var group in AuguryCatalogue.Rewards.GroupBy(static r => r.Family))
+        foreach (var group in AuguryRewards.All.GroupBy(static r => r.Family))
         {
             // The HardMode rows read differently ("has a chance to drop"); the family is named by its other rows.
             var named = group.FirstOrDefault(static r => !r.HardMode) ?? group.First();
