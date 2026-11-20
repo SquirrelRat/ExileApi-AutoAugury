@@ -139,6 +139,10 @@ internal static class RewardLabels
 
         var text = line.StartsWith("Rare ", StringComparison.Ordinal) ? line["Rare ".Length..] : line;
 
+        // The rarity outcomes read as a sentence ("greatly increased Item Rarity"); the legend wants the noun.
+        if (text.Contains("Item Rarity", StringComparison.OrdinalIgnoreCase))
+            return ("Rarity", "");
+
         if (text.StartsWith(armourWith, StringComparison.OrdinalIgnoreCase) &&
             text.EndsWith(" requirements", StringComparison.OrdinalIgnoreCase))
         {
