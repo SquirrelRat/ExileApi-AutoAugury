@@ -11,3 +11,7 @@ Errors.txt
 CLAUDE.md
 NOTES.md
 STATE.md
+
+# Local only: the test project and the research notes are working material, not part of the plugin.
+Tests/
+docs/
