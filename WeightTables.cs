@@ -12,24 +12,35 @@ namespace AutoAugury;
 /// changed default reaches every install that never set it. Each table has a Ctrl-gated button that puts its weights
 /// back to their defaults.
 ///
-/// The reward table is a searchable, filterable list: a number box per reward family (0 to 4000), a bar beside it sized
-/// against the highest reward weight, so weights compare at a glance (on a slider from -100 to 100 a weight of 3 and
-/// one of 8 sat in the same place), the copies the reward needs, the area level it starts at, and a reset for a weight
-/// that differs from its default. The Fate table keeps a slider per Fate from -100 to 100, grouped by faction, since a
-/// Fate can be worth avoiding.
+/// The reward table is a searchable, filterable list: a number box per reward family (0 to HighestRewardWeight,
+/// dragged at a pace set by its weight, RewardDragSpeedOf, since a Hinekora's Lock weighs 6371 and most rewards under
+/// 100), a bar beside it on a logarithmic scale against the highest reward weight, the Must take mark, the copies the
+/// reward needs, the area level it starts at, and a reset for a weight that differs from its default. The Fate table
+/// keeps a slider per Fate from -100 to 100, grouped by faction, since a Fate can be worth avoiding.
 /// </summary>
 internal static class WeightTables
 {
     public const int LowestRewardWeight = 0;
-    /// <summary>
-    /// The top of the reward scale. A weight is what one claim of the reward is worth, on a scale where the catalogue's
-    /// defaults ran 0 to 70 until 2026-11-19; a chase outcome such as a Mirror Shard (6,670 chaos when the Covens
-    /// prices were read, against a Divine Orb's 215) needs far more than 100 to be ranked above the rest.
-    /// </summary>
-    public const int HighestRewardWeight = 4000;
 
-    /// <summary>How far one pixel of drag moves a reward weight: the 0 to 100 range's quarter step, scaled to this one.</summary>
-    private const float DragSpeed = HighestRewardWeight / 400f;
+    /// <summary>
+    /// The highest reward weight: 100000, a thousand divines at the price-based weights' 100 per Divine Orb. Was 100,
+    /// which held a Mirror Shard to the weight of everyday currency (the user, 2026-11-18).
+    /// </summary>
+    public const int HighestRewardWeight = 100000;
+
+    /// <summary>
+    /// A reward weight box's flags: clamped to the range, not logarithmic. ImGui's logarithmic drag divides the mouse's
+    /// movement by the whole range, so across 0 to 100000 a whole-number weight moved once and then stayed (the user,
+    /// 2026-11-19); RewardDragSpeedOf scales the pace instead.
+    /// </summary>
+    private const ImGuiSliderFlags RewardWeightDrag = ImGuiSliderFlags.AlwaysClamp;
+
+    /// <summary>
+    /// How far a reward weight moves per pixel dragged: 1% of the weight, at least 0.25 (the pace of the first build's
+    /// boxes), taken afresh each frame, so a weight of 65 moves about 0.65 a pixel and a Hinekora's Lock's 6371 about
+    /// 64, each changing by the same share of itself.
+    /// </summary>
+    private static float RewardDragSpeedOf(int weight) => Math.Max(0.25f, weight / 100f);
 
     private const int LowestFateWeight = -100;
     private const int HighestFateWeight = 100;
@@ -41,6 +52,9 @@ internal static class WeightTables
 
     /// <summary>A category heading's colour: AutoExpedition's purple.</summary>
     private static readonly Vector4 CategoryColour = new(190f / 255f, 120f / 255f, 1f, 1f);
+
+    /// <summary>A learned reward without a weight: AutoExpedition's red.</summary>
+    private static readonly Vector4 NoWeightColour = new(235f / 255f, 90f / 255f, 90f / 255f, 1f);
 
     private static readonly string AllCategories = "All categories";
 
@@ -54,6 +68,7 @@ internal static class WeightTables
     public static void DrawRewardWeights(RewardSettings settings)
     {
         DrawResetButton("Reset reward weights###autoauguryResetRewardWeights", settings.Weights);
+        DrawNewRewards(settings);
 
         ImGui.SetNextItemWidth(320f);
         ImGui.InputTextWithHint("###autoauguryRewardSearch", "search rewards, e.g. boots speed", ref _rewardSearch,
@@ -78,7 +93,6 @@ internal static class WeightTables
         ImGui.TextDisabled($"Showing {shown.Count} of {RewardFamilies.All.Count}");
         ImGui.SameLine();
         DrawBulkSet(settings, shown);
-        DrawPresets(settings);
         DrawRewardTable(settings, shown);
     }
 
@@ -112,7 +126,6 @@ internal static class WeightTables
             : null;
 
         var shown = RewardFamilies.All
-            .Where(f => settings.ShowHardModeFamilies.Value || !RewardFamilies.IsHardModeOnly(f.Id))
             .Where(f => category == null || f.Category == category)
             .Where(f => !_changedRewardsOnly || settings.IsChanged(f.Id))
             .Where(f => words.All(w => Mentions(f, w)));
@@ -139,8 +152,8 @@ internal static class WeightTables
     private static void DrawBulkSet(RewardSettings settings, List<RewardFamily> shown)
     {
         ImGui.SetNextItemWidth(70f);
-        ImGui.DragInt("###autoauguryRewardBulkWeight", ref _bulkRewardWeight, DragSpeed, LowestRewardWeight,
-            HighestRewardWeight, "%d", ImGuiSliderFlags.AlwaysClamp);
+        ImGui.DragInt("###autoauguryRewardBulkWeight", ref _bulkRewardWeight, RewardDragSpeedOf(_bulkRewardWeight),
+            LowestRewardWeight, HighestRewardWeight, "%d", RewardWeightDrag);
         ImGui.SameLine();
 
         var armed = ImGui.IsKeyDown(ImGuiKey.ModCtrl);
@@ -159,42 +172,18 @@ internal static class WeightTables
             Save(settings.Weights, family.Id, _bulkRewardWeight, family.DefaultWeight);
     }
 
-    /// <summary>One-click weight sets (WeightPresets); Ctrl-gated like the bulk set, since each changes many.</summary>
-    private static void DrawPresets(RewardSettings settings)
-    {
-        ImGui.SameLine();
-        ImGui.TextDisabled("Preset:");
-
-        foreach (var (id, label) in WeightPresets.All)
-        {
-            ImGui.SameLine();
-
-            var armed = ImGui.IsKeyDown(ImGuiKey.ModCtrl);
-
-            ImGui.BeginDisabled(!armed);
-            var clicked = ImGui.SmallButton($"{label}###autoauguryPreset{id}");
-            ImGui.EndDisabled();
-
-            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                ImGui.SetTooltip($"Sets the {label} reward weights, leaving the rest alone.\nHold Ctrl to click it.");
-
-            if (clicked && armed)
-                WeightPresets.ApplyTo(settings.Weights, id,
-                    static f => RewardFamilies.Of(f)?.DefaultWeight ?? 0);
-        }
-    }
-
     private static void DrawRewardTable(RewardSettings settings, List<RewardFamily> shown)
     {
         const ImGuiTableFlags flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV |
                                       ImGuiTableFlags.ScrollY | ImGuiTableFlags.SizingFixedFit;
 
-        if (!ImGui.BeginTable("###autoauguryRewardTable", 6, flags, new Vector2(0f, RewardTableHeight)))
+        if (!ImGui.BeginTable("###autoauguryRewardTable", 7, flags, new Vector2(0f, RewardTableHeight)))
             return;
 
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableSetupColumn("Weight", ImGuiTableColumnFlags.WidthFixed, 60f);
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 120f);
+        ImGui.TableSetupColumn("Must take", ImGuiTableColumnFlags.WidthFixed, 70f);
         ImGui.TableSetupColumn("Reward", ImGuiTableColumnFlags.WidthStretch);
         ImGui.TableSetupColumn("Copies", ImGuiTableColumnFlags.WidthFixed, 50f);
         ImGui.TableSetupColumn("From level", ImGuiTableColumnFlags.WidthFixed, 70f);
@@ -211,6 +200,7 @@ internal static class WeightTables
             {
                 category = family.Category;
                 ImGui.TableNextRow();
+                ImGui.TableNextColumn();
                 ImGui.TableNextColumn();
                 ImGui.TableNextColumn();
                 ImGui.TableNextColumn();
@@ -233,17 +223,18 @@ internal static class WeightTables
         ImGui.TableNextColumn();
         ImGui.SetNextItemWidth(-1f);
 
-        if (ImGui.DragInt($"###autoauguryReward{family.Id}", ref weight, DragSpeed, LowestRewardWeight,
-                HighestRewardWeight, "%d", ImGuiSliderFlags.AlwaysClamp))
+        if (ImGui.DragInt($"###autoauguryReward{family.Id}", ref weight, RewardDragSpeedOf(weight), LowestRewardWeight,
+                HighestRewardWeight, "%d", RewardWeightDrag))
             Save(settings.Weights, family.Id, weight, family.DefaultWeight);
 
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip("Drag, or double-click to type.");
 
         ImGui.TableNextColumn();
+        ImGui.ProgressBar(BarShareOf(weight, highest), new Vector2(-1f, 0f), "");
 
-        // Square-rooted: with the chase outcomes in the thousands, a rare item's weight of 2 would show no bar at all.
-        ImGui.ProgressBar(MathF.Sqrt(weight / (float)highest), new Vector2(-1f, 0f), "");
+        ImGui.TableNextColumn();
+        DrawMustTakeBox(settings, family.Id);
 
         ImGui.TableNextColumn();
 
@@ -278,79 +269,142 @@ internal static class WeightTables
             ImGui.SetTooltip($"Back to the default, {family.DefaultWeight}.");
     }
 
-    // What the Fate table shows, for this session only: not settings, so not saved.
-    private static string _fateSearch = "";
-    private static bool _changedFatesOnly;
+    /// <summary>A weight's share of its bar: logarithmic, so 6371 and 65 both show (65 fills about half).</summary>
+    private static float BarShareOf(int weight, int highest) =>
+        MathF.Log(1f + weight) / MathF.Log(1f + Math.Max(1, highest));
+
+    /// <summary>
+    /// The Must take checkbox for a family (RewardSettings.IsMustTake), with a tooltip saying what the mark does.
+    /// </summary>
+    private static void DrawMustTakeBox(RewardSettings settings, string family)
+    {
+        var mustTake = settings.IsMustTake(family);
+
+        if (ImGui.Checkbox($"###autoauguryMustTake{family}", ref mustTake))
+            settings.SetMustTake(family, mustTake);
+
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip("Must take: decides the pick before the weights do.\n" +
+                             "With none held, the card with the weightiest Must take reward;\n" +
+                             "with one held, the card that adds most to the Must take rewards.\n" +
+                             "Framed purple on the cards.");
+    }
+
+    /// <summary>
+    /// The rewards learned from the panel (NewRewardRegistry), above the catalogue's, while there are any: a number box
+    /// each, the label red with "(no weight)" until a weight is set (a learned reward counts nothing until then; a
+    /// click in the box sets it, 0 included), its copies, the area level it was first seen at, and a button that
+    /// forgets it and its weight (a card showing it again learns it again).
+    /// </summary>
+    private static void DrawNewRewards(RewardSettings settings)
+    {
+        if (settings.NewRewards.Count == 0)
+            return;
+
+        ImGui.SeparatorText($"New rewards, not in the plugin's data ({settings.NewRewards.Count})");
+
+        const ImGuiTableFlags flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerV |
+                                      ImGuiTableFlags.SizingFixedFit;
+
+        if (!ImGui.BeginTable("###autoauguryNewRewardTable", 6, flags))
+            return;
+
+        ImGui.TableSetupColumn("Weight", ImGuiTableColumnFlags.WidthFixed, 60f);
+        ImGui.TableSetupColumn("Must take", ImGuiTableColumnFlags.WidthFixed, 70f);
+        ImGui.TableSetupColumn("Reward", ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("Copies", ImGuiTableColumnFlags.WidthFixed, 50f);
+        ImGui.TableSetupColumn("Seen at level", ImGuiTableColumnFlags.WidthFixed, 90f);
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 50f);
+        ImGui.TableHeadersRow();
+
+        NewReward forgotten = null;
+
+        foreach (var reward in settings.NewRewards)
+        {
+            var id = NewRewardRegistry.IdOf(reward);
+            var weight = settings.WeightOf(id);
+            var label = NewRewardRegistry.LabelOf(reward);
+
+            ImGui.TableNextRow();
+
+            ImGui.TableNextColumn();
+            ImGui.SetNextItemWidth(-1f);
+
+            if (ImGui.DragInt($"###autoauguryNewReward{id}", ref weight, RewardDragSpeedOf(weight), LowestRewardWeight,
+                    HighestRewardWeight, "%d", RewardWeightDrag) || ImGui.IsItemActivated())
+                settings.Weights[id] = weight;
+
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Drag, or double-click to type. A click sets it, 0 included.");
+
+            ImGui.TableNextColumn();
+            DrawMustTakeBox(settings, id);
+
+            ImGui.TableNextColumn();
+
+            if (settings.Weights.ContainsKey(id))
+                ImGui.TextUnformatted(label);
+            else
+                ImGui.TextColored(NoWeightColour, $"{label} (no weight)");
+
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip($"{reward.Text}\n\nFirst seen {reward.FirstSeen} at area level " +
+                                 $"{reward.FirstSeenAreaLevel}. Counts nothing until its weight is set.");
+
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(reward.CopiesNeeded > 1 ? $"{reward.CopiesNeeded}" : "");
+
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted($"{reward.FirstSeenAreaLevel}");
+
+            ImGui.TableNextColumn();
+
+            if (ImGui.SmallButton($"forget###autoauguryNewRewardForget{id}"))
+                forgotten = reward;
+
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip("Removes it and its weight.\nA card showing it again learns it again.");
+        }
+
+        ImGui.EndTable();
+
+        if (forgotten == null)
+            return;
+
+        settings.NewRewards.Remove(forgotten);
+        settings.Weights.Remove(NewRewardRegistry.IdOf(forgotten));
+        settings.MustTake.Remove(NewRewardRegistry.IdOf(forgotten));
+    }
 
     public static void DrawFateWeights(FateSettings settings)
     {
         DrawResetButton("Reset Fate weights###autoauguryResetFateWeights", settings.Weights);
 
-        ImGui.SetNextItemWidth(320f);
-        ImGui.InputTextWithHint("###autoauguryFateSearch", "search Fates, e.g. crow", ref _fateSearch, 128);
-
-        if (_fateSearch.Length > 0)
-        {
-            ImGui.SameLine();
-
-            if (ImGui.SmallButton("clear###autoauguryFateSearchClear"))
-                _fateSearch = "";
-        }
-
-        ImGui.SameLine();
-        ImGui.Checkbox("Changed only###autoauguryFateChangedOnly", ref _changedFatesOnly);
-
-        var words = _fateSearch.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        var filtering = words.Length > 0 || _changedFatesOnly;
-
         foreach (var faction in AuguryCatalogue.Factions)
         {
-            var fates = AuguryCatalogue.Fates
-                .Where(f => f.FactionId == faction.Id)
-                .Where(f => !_changedFatesOnly || settings.Weights.ContainsKey(f.Id))
-                .Where(f => words.All(w => f.Name.Contains(w, StringComparison.OrdinalIgnoreCase)))
-                .OrderBy(static f => f.Name)
-                .ToList();
-
-            if (fates.Count == 0)
+            if (!ImGui.TreeNode($"{faction.Name} ({faction.Id})###autoauguryFaction{faction.Id}"))
                 continue;
 
-            if (!filtering)
-            {
-                if (!ImGui.TreeNode($"{faction.Name} ({faction.Id})###autoauguryFaction{faction.Id}"))
-                    continue;
-            }
-            else
-            {
-                ImGui.TextColored(CategoryColour, $"{faction.Name} ({faction.Id})");
-            }
+            var fates = AuguryCatalogue.Fates.Where(f => f.FactionId == faction.Id).OrderBy(static f => f.Name);
 
             foreach (var fate in fates)
-                DrawFateRow(settings, fate);
+            {
+                var weight = settings.WeightOf(fate.Id);
 
-            if (!filtering)
-                ImGui.TreePop();
+                ImGui.SetNextItemWidth(SliderWidth);
+
+                if (ImGui.SliderInt($"##autoauguryFate{fate.Id}", ref weight, LowestFateWeight, HighestFateWeight))
+                    Save(settings.Weights, fate.Id, weight, 0);
+
+                ImGui.SameLine();
+                ImGui.TextUnformatted(fate.Name);
+
+                if (ImGui.IsItemHovered())
+                    ImGui.SetTooltip(TooltipOf(fate));
+            }
+
+            ImGui.TreePop();
         }
-    }
-
-    private static void DrawFateRow(FateSettings settings, AuguryFate fate)
-    {
-        var weight = settings.WeightOf(fate.Id);
-
-        ImGui.SetNextItemWidth(SliderWidth);
-
-        if (ImGui.SliderInt($"##autoauguryFate{fate.Id}", ref weight, LowestFateWeight, HighestFateWeight))
-            Save(settings.Weights, fate.Id, weight, 0);
-
-        ImGui.SameLine();
-
-        if (settings.Weights.ContainsKey(fate.Id))
-            ImGui.TextColored(ChangedColour, fate.Name);
-        else
-            ImGui.TextUnformatted(fate.Name);
-
-        if (ImGui.IsItemHovered())
-            ImGui.SetTooltip(TooltipOf(fate));
     }
 
     /// <summary>

@@ -1,27 +1,37 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
+using System.Text.RegularExpressions;
 using ExileCore;
 using ExileCore.PoEMemory;
 using RectangleF = SharpDX.RectangleF;
 
 namespace AutoAugury;
 
-/// <summary>A reward icon on a card: the text the panel holds for it, the catalogue reward it is, its copies.</summary>
+/// <summary>
+/// A reward icon on a card: the text the panel holds for it, the catalogue reward it is, its copies, where it is.
+/// </summary>
 /// <param name="Text">The reward's text as the panel holds it, markup included.</param>
 /// <param name="Reward">The catalogue reward the text is, or null when no catalogue reward has that text.</param>
 /// <param name="CopiesNeeded">
 /// How many copies of the Fate must be invoked for the reward: 1; 2 when the panel adds "To claim this reward, invoke
 /// two copies of it"; 3 for "three copies".
 /// </param>
-internal sealed record FateCardReward(string Text, AuguryReward Reward, int CopiesNeeded);
+/// <param name="Rect">
+/// The icon's rectangle in client pixels where it sits while its card is not hovered (51x48 since 3.30.0c made the
+/// panel larger, 40x37 before): the hovered card's content, icons included, is lifted (FatesPanelState.HoverLift), and
+/// the lift read with the icon is taken out, so the rectangle stays put between reads. Empty when not read.
+/// </param>
+internal sealed record FateCardReward(string Text, AuguryReward Reward, int CopiesNeeded, RectangleF Rect = default);
 
 /// <summary>A card in the Fates panel.</summary>
 /// <param name="Name">The name the card shows.</param>
 /// <param name="Fate">The catalogue Fate of that name, or null when none has it.</param>
 /// <param name="Tier">
-/// The tier, from the card's full text, which differs by tier for 18 of the 25 Fates; null when the text is the same at
-/// every tier or matches none. The panel's own tier number is a hidden element that read "1" on tier 2 and 3 cards.
+/// The tier, from the card's full text, which differs by tier for 18 of the 25 Fates; for the others, and for a text
+/// a patch changed, the area's tier read off another card (FatesPanel.WithAreaTier); null when neither is known. The
+/// panel's own tier number is a hidden element that read "1" on tier 2 and 3 cards.
 /// </param>
 /// <param name="Rect">
 /// The card's rectangle in client pixels; the hovered card's content moves up 13 px, this does not.
@@ -50,28 +60,26 @@ internal sealed record FateCard(string Name, AuguryFate Fate, int? Tier, Rectang
 /// empty slot shows as a card frame with its name hidden (three at the boss of 2026-11-14 03:38).
 /// </param>
 /// <param name="ConfirmButton">
-/// The confirm button's rectangle (166x38 below the top row in both views on 2026-11-19), found by its "confirm"
-/// label; empty when it is not visible.
+/// The confirm button's rectangle ([2,10], below the top row in both views; 221x52 while choosing since 3.30.0c, 193x45
+/// before); empty when it is not visible.
 /// </param>
 /// <param name="CloseButton">
-/// The close button's rectangle (the panel's child [3], 31x31 at its top right on 2026-11-19); empty when it is not
-/// visible.
+/// The close button's rectangle ([3], 37x37 at the panel's top right in both views); empty when it is not visible.
 /// </param>
+/// <param name="HoverLift">
+/// How far, in pixels, the game lifts the content of the card under the mouse (its name, text and reward icons; the
+/// card's own rectangle stays): the most read so far; 0 until a hovered card has been read (the overlay then takes
+/// FatesPanel.UnmeasuredHoverLift).
+/// </param>
+/// <param name="Counter">The Fate counter the panel shows ([2,5,0]); null when it shows none, or not "N/M".</param>
 internal sealed record FatesPanelState(bool Visible, string Title, IReadOnlyList<FateCard> Offered,
     IReadOnlyList<FateCard> Collection, IReadOnlyList<RectangleF> TopRowSlots, RectangleF ConfirmButton,
-    RectangleF CloseButton)
+    RectangleF CloseButton, float HoverLift = 0f, FateCounter Counter = null)
 {
     public const string ChoosingTitle = "Fates";
     public const string InvokingTitle = "Invoke Fates";
 
     public static readonly FatesPanelState Closed = new(false, "", [], [], [], default, default);
-
-    /// <summary>
-    /// The game's own count of the area's Fates, from the "0/3" element 3.30.0d added to the panel body: how many are
-    /// collected, and how many the area offers. Read as ground truth where the tracker would estimate the same
-    /// (FateScoring.CauldronProgressOf). Null when the element is not there or does not read.
-    /// </summary>
-    public (int Collected, int Available)? FatesCounter { get; init; }
 
     /// <summary>
     /// The boss panel's reward summary as text ("3x &lt;reward&gt;" per reward, FateSummaryText.Parse): what the summary
@@ -90,18 +98,45 @@ internal sealed record FatesPanelState(bool Visible, string Title, IReadOnlyList
 }
 
 /// <summary>
+/// The Fate counter the game shows since patch 3.30.0.4 (2026-11-19), "collected/available", in the Fates panel and on
+/// the Show collected Fates button: the Fates collected in the area, and the Fates it holds, one per Cauldron. Read
+/// from the client's code: the first number is the collection's length, the second a byte the server sends in a
+/// message that carries nothing else (ClientAugury's sub-message 4). Seen in game: it counts the map's Cauldrons used
+/// and in all (the user, 2026-11-19: "1/4" after the first choice).
+/// </summary>
+internal sealed record FateCounter(int Collected, int InArea)
+{
+    private static readonly Regex CounterText = new(@"^\s*(\d+)\s*/\s*(\d+)\s*$", RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// The counter a text shows, or null when the text is not "N/M" with M at least 1. The button's copy read empty
+    /// before the server had sent the count (dump of 2026-11-19 22:25:49, no Cauldron opened yet in that visit).
+    /// </summary>
+    public static FateCounter Parse(string text)
+    {
+        var match = CounterText.Match(text ?? "");
+
+        if (!match.Success || !int.TryParse(match.Groups[1].Value, out var collected) ||
+            !int.TryParse(match.Groups[2].Value, out var inArea) || inArea < 1)
+            return null;
+
+        return new FateCounter(collected, inArea);
+    }
+}
+
+/// <summary>
 /// Reads the Fates panel, the Augury window in which a Cauldron's Fates are chosen and, at the area's boss, the
 /// collection's Fates are invoked, as the game shows them. Only visible elements count: the panel reuses its elements,
 /// and hidden ones keep earlier cards' names and rewards (dumps of 2026-11-14).
 ///
-/// The layout, read off the dumps of 2026-11-14 (the panel while choosing, and at the boss) and 2026-11-19 (choosing,
-/// after the 3.30.x patch): the panel is a child of IngameUi whose index moves as other panels open, recognised by its
-/// title, child 2's child 3: "Fates" while choosing, "Invoke Fates" at the boss. Below child 2 the card rows are found
-/// by the cards they hold, not by their index (CardRowsOf): the first is the top row (the offer, or the invocation
-/// slots at the boss), the second the collection. The 2026-11-19 patch added a copies counter ("0/3") at [5] and moved
-/// the rows from [5,0] and [6,0] to [6,0] and [7,0], the summary to [8] and the confirm button to [10]; finding them
-/// by shape takes such an insertion without a change. A card k's content is [k,0,0]: [4] its name, [8,0] its reward
-/// icons, each icon's child [3] the reward's text; the card element's Tooltip holds its full text.
+/// The layout, read off dumps of 2026-11-14 (the panel while choosing, and at the boss): the panel is a
+/// child of IngameUi whose index moves as other panels open, recognised by its title, child 2's child 3: "Fates" while
+/// choosing, "Invoke Fates" at the boss. Below child 2: [5,0] the Fate counter's text, "collected/available" ("0/4"),
+/// [6,0] the top row (the offer, or the invocation slots), [7,0] the collection, [8] a reward summary (hidden while
+/// choosing, visible at the boss), [10] the confirm button. Patch 3.30.0.4 (2026-11-19) added the counter at [5] and
+/// moved every later child up one (child 2 had 11 children before, 12 since; dumps of 22:30 to 22:36 choosing, with
+/// the counter at "0/4" to "2/4", and 22:37:09 at the boss, "4/4"). A card k's content is [k,0,0]: [4] its name,
+/// [8,0] its reward icons, each icon's child [3] the reward's text; the card element's Tooltip holds its full text.
 /// </summary>
 internal sealed class FatesPanel
 {
@@ -114,12 +149,30 @@ internal sealed class FatesPanel
     /// <summary>The most text read; Element.Text stops at about 250 characters, short of a Fate's full text.</summary>
     private const int MostTextLength = 4096;
 
+    /// <summary>
+    /// The hover lift taken until one is read: 13 px, measured before 3.30.0c (2026-11-14); the larger panel may lift
+    /// by another amount, which the first read of a hovered card replaces.
+    /// </summary>
+    public const float UnmeasuredHoverLift = 13f;
+
+    /// <summary>
+    /// The largest lift taken as one: a card's content read further above its rectangle than this is taken to be in
+    /// some other state, not hovered. Chosen, about three times the lift measured.
+    /// </summary>
+    private const float MostHoverLift = 40f;
+
     private Element _panel;
+
+    /// <summary>The largest hover lift read since the panel was found; 0 until one is read.</summary>
+    private float _hoverLift;
 
     /// <summary>Not started, so the first read looks at once; restarted by every look after.</summary>
     private readonly Stopwatch _sinceLook = new();
 
-    /// <summary>Forgets the panel, so the next read looks for it again. For an area change.</summary>
+    /// <summary>
+    /// Forgets the panel, so the next read looks for it again. For an area change. The hover lift is kept: it belongs
+    /// to the interface's size, not to the area.
+    /// </summary>
     public void Forget() => _panel = null;
 
     public FatesPanelState Read(GameController gc)
@@ -130,100 +183,29 @@ internal sealed class FatesPanel
             return FatesPanelState.Closed;
 
         var body = ChildAt(panel, 2);
+
+        var title = TitleOf(panel);
         var rows = CardRowsOf(body);
+        var top = CardsOf(rows.Count > 0 ? rows[0] : null);
+        var bottom = CardsOf(rows.Count > 1 ? rows[1] : null);
+        var (offered, collection) = WithAreaTier(top.Cards, bottom.Cards, title == FatesPanelState.ChoosingTitle);
 
-        var offered = new List<FateCard>();
-        var slots = new List<RectangleF>();
-        var collection = new List<FateCard>();
-
-        if (rows.Count > 0)
-            (offered, slots) = CardsOf(rows[0]);
-
-        if (rows.Count > 1)
-            (collection, _) = CardsOf(rows[1]);
+        _hoverLift = Math.Max(_hoverLift, Math.Max(top.Lift, bottom.Lift));
 
         var summary = SummaryOf(ChildAt(body, 8));
 
-        return new FatesPanelState(true, TitleOf(panel), offered, collection, slots,
-            VisibleRectOf(ConfirmButtonOf(body)), VisibleRectOf(ChildAt(panel, 3)))
+        return new FatesPanelState(true, title, offered, collection, top.Slots,
+            VisibleRectOf(ConfirmButtonOf(body)), VisibleRectOf(ChildAt(panel, 3)), _hoverLift, CounterOf(body))
         {
-            FatesCounter = CounterOf(body),
             SummaryLines = summary.Lines,
             SummaryRect = summary.Rect,
         };
     }
 
     /// <summary>
-    /// The summary strip's text entries and the rectangle its visible icons span. The strip's own element holds no
-    /// text: the long line is one of its children (read past Element.Text's 256-character stop), the icons sit in two
-    /// groups of children below it.
-    /// </summary>
-    private static (List<(int Multiplier, string Text)> Lines, RectangleF Rect) SummaryOf(Element summary)
-    {
-        var lines = new List<(int Multiplier, string Text)>();
-        var rect = default(RectangleF);
-        var any = false;
-
-        if (summary == null)
-            return (lines, rect);
-
-        foreach (var child in Safe.ChildrenOf(summary) ?? [])
-        {
-            var raw = Safe.Read(child, static c => c.Text, null);
-
-            if (!string.IsNullOrWhiteSpace(raw) && raw.Contains('x'))
-                lines.AddRange(FateSummaryText.Parse(Safe.Read(child, static c => c.GetText(4096), null)));
-
-            foreach (var icon in Safe.ChildrenOf(child) ?? [])
-            {
-                if (!Safe.Read(icon, static i => i.IsVisible, false))
-                    continue;
-
-                var iconRect = Safe.Read(icon, static i => i.GetClientRectCache, default(RectangleF));
-
-                if (iconRect.Width <= 0f || iconRect.Height <= 0f)
-                    continue;
-
-                rect = any
-                    ? new RectangleF(Math.Min(rect.X, iconRect.X), Math.Min(rect.Y, iconRect.Y),
-                        Math.Max(rect.Right, iconRect.Right) - Math.Min(rect.X, iconRect.X),
-                        Math.Max(rect.Bottom, iconRect.Bottom) - Math.Min(rect.Y, iconRect.Y))
-                    : iconRect;
-                any = true;
-            }
-        }
-
-        return (lines, rect);
-    }
-
-    /// <summary>
-    /// The game's own "collected/available" Fates count, the "0/3" element 3.30.0d added to the body: the body child
-    /// whose own child reads two numbers around a slash. Null when none does (an older client, or a moved element).
-    /// </summary>
-    private static (int Collected, int Available)? CounterOf(Element body)
-    {
-        foreach (var holder in Safe.ChildrenOf(body) ?? [])
-        {
-            var text = Safe.Read(ChildAt(holder, 0), static e => e?.Text, null);
-
-            if (text == null)
-                continue;
-
-            var parts = text.Trim().Split('/');
-
-            if (parts.Length == 2 && int.TryParse(parts[0].Trim(), out var collected) &&
-                int.TryParse(parts[1].Trim(), out var available))
-                return (collected, available);
-        }
-
-        return null;
-    }
-
-    /// <summary>
     /// The panel's card rows, top down: a body child holding a row of cards, the offer (or the invocation slots at the
     /// boss) first, the collection second. Found by the cards' shape rather than by index, so a patch that inserts an
-    /// element above them (as 2026-11-19 did with the copies counter) moves nothing the reader depends on. At most two
-    /// are taken, which also bounds the scan to the rows in practice.
+    /// element above them - as 3.30.0d did with the Fate counter - moves nothing the reader depends on.
     /// </summary>
     private static List<Element> CardRowsOf(Element body)
     {
@@ -246,7 +228,7 @@ internal sealed class FatesPanel
     }
 
     /// <summary>
-    /// Whether an element holds cards: one child whose child 0,0 has a card's content — 9 or more children, a name at
+    /// Whether an element holds cards: one child whose child 0,0 has a card's content - 9 or more children, a name at
     /// [4] and the reward icons at [8]. The rows' leftover cards count, hidden or not, as the game keeps them.
     /// </summary>
     private static bool IsCardRow(Element row)
@@ -283,6 +265,88 @@ internal sealed class FatesPanel
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The Fate counter the panel shows ("3/3"): the body child whose own child reads two numbers around a slash.
+    /// Null when none does (an older client, or a moved element).
+    /// </summary>
+    private static FateCounter CounterOf(Element body)
+    {
+        foreach (var holder in Safe.ChildrenOf(body) ?? [])
+        {
+            var text = Safe.Read(ChildAt(holder, 0), static e => e?.Text, null);
+
+            if (text != null && FateCounter.Parse(text) is { } counter)
+                return counter;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The summary strip's text entries and the rectangle its visible icons span. The strip's own element holds no
+    /// text: the long line is one of its children (read past Element.Text's 256-character stop), the icons sit in two
+    /// groups of children below it.
+    /// </summary>
+    private static (List<(int Multiplier, string Text)> Lines, RectangleF Rect) SummaryOf(Element summary)
+    {
+        var lines = new List<(int Multiplier, string Text)>();
+        var rect = default(RectangleF);
+        var any = false;
+
+        if (summary == null)
+            return (lines, rect);
+
+        foreach (var child in Safe.ChildrenOf(summary) ?? [])
+        {
+            var raw = Safe.Read(child, static c => c.Text, null);
+
+            if (!string.IsNullOrWhiteSpace(raw) && raw.Contains('x'))
+                lines.AddRange(FateSummaryText.Parse(Safe.Read(child, static c => c.GetText(MostTextLength), null)));
+
+            foreach (var icon in Safe.ChildrenOf(child) ?? [])
+            {
+                if (!Safe.Read(icon, static i => i.IsVisible, false))
+                    continue;
+
+                var iconRect = Safe.Read(icon, static i => i.GetClientRectCache, default(RectangleF));
+
+                if (iconRect.Width <= 0f || iconRect.Height <= 0f)
+                    continue;
+
+                rect = any
+                    ? new RectangleF(Math.Min(rect.X, iconRect.X), Math.Min(rect.Y, iconRect.Y),
+                        Math.Max(rect.Right, iconRect.Right) - Math.Min(rect.X, iconRect.X),
+                        Math.Max(rect.Bottom, iconRect.Bottom) - Math.Min(rect.Y, iconRect.Y))
+                    : iconRect;
+                any = true;
+            }
+        }
+
+        return (lines, rect);
+    }
+
+    /// <summary>
+    /// The cards, those whose text gave no tier given the area's: every card in an area shows one tier, the one the
+    /// server sends on entering it (the client looks up a card's tier text by that tier and the card, read from its
+    /// code on 2026-11-18). The area's tier is the one tier read off the collection and, while choosing, the offer; not
+    /// off the boss's slots, whose text shows a pair's raised tier (tier 3 for two copies of a tier 2 Fate, 2026-11-14
+    /// 05:35). Unchanged when no tier was read, or two different ones were.
+    /// </summary>
+    internal static (List<FateCard> Top, List<FateCard> Bottom) WithAreaTier(List<FateCard> top, List<FateCard> bottom,
+        bool choosing)
+    {
+        var tiers = (choosing ? top.Concat(bottom) : bottom).Select(static c => c.Tier).OfType<int>().Distinct()
+            .ToList();
+
+        if (tiers.Count != 1)
+            return (top, bottom);
+
+        List<FateCard> Filled(List<FateCard> cards) =>
+            cards.Select(c => c.Tier == null ? c with { Tier = tiers[0] } : c).ToList();
+
+        return (Filled(top), Filled(bottom));
     }
 
     /// <summary>An element's rectangle while it is visible; empty otherwise.</summary>
@@ -326,10 +390,10 @@ internal sealed class FatesPanel
 
     /// <summary>
     /// Whether an open panel read nothing: the panel always shows card frames, so an open read with no slots and no
-    /// cards means the client's layout moved and the indices no longer land. The Tick warns on repeats of this.
+    /// cards means the client's layout moved and the finders no longer land. The Tick warns on repeats of this.
     /// </summary>
     public static bool ReadsEmpty(FatesPanelState state) =>
-        state.Visible && state.TopRowSlots.Count == 0 && state.Offered.Count == 0 &&
+        state != null && state.Visible && state.TopRowSlots.Count == 0 && state.Offered.Count == 0 &&
         state.Collection.Count == 0;
 
     /// <summary>
@@ -338,22 +402,24 @@ internal sealed class FatesPanel
     /// collection, so ReadsEmpty stayed quiet while the overlay drew nothing).
     /// </summary>
     public static bool ReadsNoOffers(FatesPanelState state) =>
-        state.ChoosingFate && state.Offered.Count == 0;
+        state != null && state.ChoosingFate && state.Offered.Count == 0;
 
     /// <summary>The text of child 2's child 3, where the Fates panel has its title; null when there is none.</summary>
     private static string TitleOf(Element panel) => Safe.Read(ChildAt(panel, 2, 3), static t => t?.Text, null);
 
     /// <summary>
     /// A row's cards: every visible card element's rectangle (slots), and a FateCard for each whose name element is
-    /// visible and named. An empty invocation slot is a visible card element with its name element hidden.
+    /// visible and named, with the largest hover lift read among them (0 when no card was hovered). An empty
+    /// invocation slot is a visible card element with its name element hidden.
     /// </summary>
-    private static (List<FateCard> Cards, List<RectangleF> Slots) CardsOf(Element row)
+    private static (List<FateCard> Cards, List<RectangleF> Slots, float Lift) CardsOf(Element row)
     {
         var cards = new List<FateCard>();
         var slots = new List<RectangleF>();
+        var mostLift = 0f;
 
         if (!Safe.Read(row, static r => r?.IsVisible ?? false, false))
-            return (cards, slots);
+            return (cards, slots, mostLift);
 
         foreach (var card in Safe.ChildrenOf(row) ?? [])
         {
@@ -365,7 +431,11 @@ internal sealed class FatesPanel
             slots.Add(rect);
 
             var content = ChildAt(card, 0, 0);
+            var lift = LiftOf(rect, Safe.Read(content, static c => c?.GetClientRectCache ?? default,
+                default(RectangleF)));
             var nameElement = ChildAt(content, 4);
+
+            mostLift = Math.Max(mostLift, lift);
             var name = Safe.Read(nameElement, static n => n?.IsVisible ?? false, false) ? TextOf(nameElement) : null;
 
             if (string.IsNullOrWhiteSpace(name))
@@ -375,13 +445,25 @@ internal sealed class FatesPanel
             var fullText = TextOf(Safe.Read(card, static c => c.Tooltip, null));
 
             cards.Add(new FateCard(name.Trim(), fate, AuguryCatalogueLookup.TierOf(fate, fullText), rect,
-                RewardsOf(ChildAt(content, 8, 0)), !Safe.Read(card, static c => c.IsActive, true)));
+                RewardsOf(ChildAt(content, 8, 0), lift), !Safe.Read(card, static c => c.IsActive, true)));
         }
 
-        return (cards, slots);
+        return (cards, slots, mostLift);
     }
 
-    private static List<FateCardReward> RewardsOf(Element icons)
+    /// <summary>
+    /// How far a card's content sits above the card's own rectangle: the hover lift while the card is hovered, 0
+    /// otherwise; 0 too when the content was not read or sits further up than MostHoverLift.
+    /// </summary>
+    private static float LiftOf(RectangleF card, RectangleF content)
+    {
+        var lift = card.Top - content.Top;
+
+        return content.Height > 0f && lift > 0f && lift <= MostHoverLift ? lift : 0f;
+    }
+
+    /// <summary>A card's visible reward icons, each moved down by the card's lift, to where it rests.</summary>
+    private static List<FateCardReward> RewardsOf(Element icons, float lift)
     {
         var rewards = new List<FateCardReward>();
 
@@ -397,7 +479,12 @@ internal sealed class FatesPanel
 
             var copies = AuguryCatalogueLookup.CopiesNeededOf(text);
 
-            rewards.Add(new FateCardReward(text, AuguryCatalogueLookup.RewardShown(text, copies), copies));
+            var rect = Safe.Read(icon, static i => i.GetClientRectCache, default(RectangleF));
+
+            if (rect.Width > 0f)
+                rect.Y += lift;
+
+            rewards.Add(new FateCardReward(text, AuguryCatalogueLookup.RewardShown(text, copies), copies, rect));
         }
 
         return rewards;

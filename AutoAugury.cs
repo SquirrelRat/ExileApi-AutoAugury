@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows.Forms;
 using ExileCore;
@@ -23,11 +22,11 @@ namespace AutoAugury;
 /// </summary>
 public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
 {
-    /// <summary>The ConfigVersion a saved file reaches once every step in ApplySettingsChanges has run.</summary>
-    private const int CurrentConfigVersion = 0;
-
     /// <summary>How often the Fates panel is read, in ms. Chosen: the choice is made at human speed.</summary>
     private const int PanelReadIntervalMs = 100;
+
+    /// <summary>100 ms reads after which an open-but-empty panel, or a choosing panel with no offers, is reported.</summary>
+    private const int EmptyPanelWarningAfter = 50;
 
     /// <summary>
     /// The plugin's place in ExileCore's plugin order (BaseSettingsPlugin.Order): 5001, the user's choice, so it runs
@@ -37,40 +36,31 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     /// </summary>
     private const int PluginOrder = 5001;
 
+    /// <summary>How long a message from SettingsChanges stays under the cursor: 8 s, the user's figure.</summary>
+    private const double SettingsChangeMessageSeconds = 8d;
+
+    /// <summary>
+    /// A message from SettingsChanges, held until the player is in game, so it is not shown at the HUD's start where
+    /// nobody would read it; null when none waits.
+    /// </summary>
+    private string _messageOnceInGame;
+
     private readonly FatesPanel _fatesPanel = new();
     private readonly Stopwatch _sincePanelRead = Stopwatch.StartNew();
 
     /// <summary>The area's Cauldrons, for the offers still to come (the copy potential). Read by Dump.</summary>
     internal CauldronTracker Cauldrons { get; } = new();
 
-    // The invocation slots last seen at a boss's panel: the choosing view comes before any boss view in an
-    // area, so the count carries over from earlier areas until a boss view shows it again.
-    internal int ObservedSlots { get; private set; }
-
-    // What the scores were last computed for: the panel, the weights and the tracker's generation. Null until the
-    // first read and after ForgetPanel, so the first read with the plugin enabled always scores.
-    private (int Panel, int Settings, int Tracker)? _lastScoreFingerprint;
-
-    // Whether the slot-count mismatch has been logged for this area (AreaChange resets it).
-    private bool _slotMismatchLogged;
-
-    // Empty open-panel reads in a row; the warning fires once the panel has read empty for about five seconds.
-    private int _emptyPanelReads;
-
-    // Choosing reads in a row with no offered card; the warning fires after about five seconds the same way.
-    private int _noOfferReads;
-
-    /// <summary>100 ms reads after which an open-but-empty panel is reported (a patch may have moved it).</summary>
-    private const int EmptyPanelWarningAfter = 50;
-
-    // Whether an unexpected offer size has been logged for this area (AreaChange resets it).
-    private bool _offerSizeLogged;
-
     // Published whole by the Tick, drawn by Render.
     private FatesPanelState _panelState = FatesPanelState.Closed;
     private IReadOnlyList<FateScore> _scores = [];
     private InvocationGuide _guide = InvocationGuide.None;
-    private (int Current, int Total, string Source) _cauldronProgress;
+    private (int Current, double Total) _cauldronProgress;
+
+    // Empty open-panel reads in a row, and choosing reads with no offered card in a row: the warnings fire once the
+    // panel has read so for about five seconds (a patch moving the rows is what they are for).
+    private int _emptyPanelReads;
+    private int _noOfferReads;
 
     public AutoAugury() => Order = PluginOrder;
 
@@ -80,6 +70,7 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
         DumpFolder.ConfigDirectory = ConfigDirectory;
         RegisterHotkey(Settings.Debug.DumpHotkey);
         ApplySettingsChanges();
+        NewRewardRegistry.Tidy(Settings.Rewards);
         Settings.Rewards.ForgetWeightsAtDefault();
         CauldronMapIcons.LoadIcons(Graphics, DirectoryFullName);
 
@@ -87,16 +78,10 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     }
 
     /// <summary>
-    /// Brings a saved settings file up to date with changed defaults, once per change. No default has changed since the
-    /// plugin was published, so there are no steps yet; the first adds one and raises CurrentConfigVersion to 1.
+    /// Brings a saved settings file up to date with changed defaults, once per change (SettingsChanges), keeping any
+    /// message for the player until they are in game.
     /// </summary>
-    private void ApplySettingsChanges()
-    {
-        if (Settings.ConfigVersion >= CurrentConfigVersion)
-            return;
-
-        Settings.ConfigVersion = CurrentConfigVersion;
-    }
+    private void ApplySettingsChanges() => _messageOnceInGame = SettingsChanges.Apply(Settings);
 
     /// <summary>
     /// Tells Input about a hotkey so PressedOnce answers, and again whenever it is rebound in the menu. A key left
@@ -120,6 +105,13 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     /// <summary>ExileApi's Tick returns a job to run in the background; this plugin runs none.</summary>
     public override Job Tick()
     {
+        // Before the Enable check: a disabled plugin's player is told too.
+        if (_messageOnceInGame != null && Safe.Read(GameController, static g => g.InGame, false))
+        {
+            CursorMessage.Show(CursorMessage.Kind.Error, _messageOnceInGame, SettingsChangeMessageSeconds);
+            _messageOnceInGame = null;
+        }
+
         AnswerDebugTools();
 
         if (!Settings.Enable || !Safe.Read(GameController, static g => g.InGame, false))
@@ -134,87 +126,42 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
         {
             _sincePanelRead.Restart();
 
-            var state = _fatesPanel.Read(GameController);
-
-            _panelState = state;
             var areaLevel = Safe.Read(GameController, static g => g.Area.CurrentArea.RealLevel, 0);
-            var slots = InvocationAdvisor.SlotsFor(state, ObservedSlots);
-            NoteSlots(state);
-            NoteOfferSize(state);
+            var resolution = NewRewardRegistry.Resolve(_fatesPanel.Read(GameController), Settings.Rewards, areaLevel,
+                true);
+            var state = resolution.State;
+
+            CatalogueWarnings.Update(resolution, Settings.Rewards);
+            _panelState = state;
             NoteEmptyPanel(state);
             NoteNoOffers(state);
 
-            // The scores cost subsets and copy potentials: recompute only when the cards, the weights or the
-            // tracker changed. The guide rides the same gate; its placed cards are in the fingerprint.
-            var fingerprint = (FateScoring.FingerprintOf(state), FateScoring.SettingsFingerprint(Settings),
-                Cauldrons.Version);
-            var changed = fingerprint != _lastScoreFingerprint;
-
-            if (changed)
-                _lastScoreFingerprint = fingerprint;
-
-            if (state.ChoosingFate)
-            {
-                if (changed)
-                {
-                    _scores = FateScoring.Score(state, Settings,
-                        FateScoring.OffersToComeFor(state, areaLevel, Cauldrons), slots);
-                    _cauldronProgress = FateScoring.CauldronProgressOf(state, areaLevel, Cauldrons);
-                }
-            }
-            else
-            {
-                _scores = [];
-                _cauldronProgress = default;
-            }
-
-            _guide = state.InvokingFates
-                ? changed ? InvocationAdvisor.GuideFor(state, Settings, ObservedSlots) : _guide
-                : InvocationGuide.None;
+            _scores = state.ChoosingFate
+                ? FateScoring.Score(state, Settings,
+                    FateScoring.OffersToComeFor(state, areaLevel, Cauldrons))
+                : [];
+            // The game's Fate counter, when the panel shows it, says what "Estimated: 1/3" would.
+            _cauldronProgress = state.ChoosingFate && state.Counter == null
+                ? FateScoring.CauldronProgressOf(state, areaLevel, Cauldrons)
+                : default;
+            _guide = state.InvokingFates ? InvocationAdvisor.GuideFor(state, Settings) : InvocationGuide.None;
         }
 
         return null;
     }
 
-    /// <summary>
-    /// Remembers the boss view's slot count, and logs once per area when it is not the assumed one: atlas passives
-    /// or anything else may add slots, and the advice is computed for the count seen.
-    /// </summary>
-    private void NoteSlots(FatesPanelState state)
+    private void ForgetPanel()
     {
-        if (!state.InvokingFates || state.TopRowSlots.Count <= 0)
-            return;
-
-        ObservedSlots = state.TopRowSlots.Count;
-
-        if (ObservedSlots == InvocationAdvisor.DefaultSlots || _slotMismatchLogged)
-            return;
-
-        _slotMismatchLogged = true;
-        DebugWindow.LogMsg("[AutoAugury] The boss panel shows " + ObservedSlots + " invocation slots, not the " +
-            "assumed " + InvocationAdvisor.DefaultSlots + "; advising for " + ObservedSlots + ".", 10f);
-    }
-
-    /// <summary>
-    /// Logs once per area when offers show another number of Fates than the copy potential models: the model is an
-    /// override away (Debug > Fates per offer), and a wrong one quietly skews every potential weight.
-    /// </summary>
-    private void NoteOfferSize(FatesPanelState state)
-    {
-        if (!state.ChoosingFate || state.Offered.Count <= 0 || _offerSizeLogged)
-            return;
-
-        if (state.Offered.Count == Settings.Debug.FatesPerOffer.Value)
-            return;
-
-        _offerSizeLogged = true;
-        DebugWindow.LogMsg("[AutoAugury] Offers show " + state.Offered.Count + " Fates, not the modelled " +
-            Settings.Debug.FatesPerOffer.Value + "; set Debug > Fates per offer to match.", 10f);
+        _panelState = FatesPanelState.Closed;
+        _scores = [];
+        _guide = InvocationGuide.None;
+        _emptyPanelReads = 0;
+        _noOfferReads = 0;
     }
 
     /// <summary>
     /// Counts open-but-empty panel reads: the panel always shows card frames, so repeats mean the client's layout
-    /// moved and the reader's indices no longer land. Warns once per stretch, pointing at the dump.
+    /// moved and the finders no longer land. Warns once per stretch, pointing at the dump.
     /// </summary>
     private void NoteEmptyPanel(FatesPanelState state)
     {
@@ -247,16 +194,6 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
                 "have inserted an element above the offer row; take Debug > Write a dump now and check the tree.", 10f);
     }
 
-    private void ForgetPanel()
-    {
-        _panelState = FatesPanelState.Closed;
-        _scores = [];
-        _guide = InvocationGuide.None;
-        _lastScoreFingerprint = null;
-        _emptyPanelReads = 0;
-        _noOfferReads = 0;
-    }
-
     /// <summary>
     /// The dump answers with the plugin disabled too: what it is for is reading the client before the plugin does
     /// anything with it.
@@ -275,8 +212,6 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
     public override void AreaChange(AreaInstance area)
     {
         _fatesPanel.Forget();
-        _slotMismatchLogged = false;
-        _offerSizeLogged = false;
         Cauldrons.EnterArea(Safe.Read(area, static a => a?.Hash ?? 0u, 0u),
             Safe.Read(area, static a => a != null && (a.IsTown || a.IsHideout), false));
         ForgetPanel();
@@ -315,62 +250,12 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
         }
 
         if (display.ShowInvocationAdvice && _panelState.InvokingFates)
-            FateOverlay.DrawGuide(Graphics, _guide, _panelState, display);
+            FateOverlay.DrawGuide(Graphics, _guide, _panelState);
 
-        if (display.PreviewScores && !_panelState.Visible)
-            DrawPreview(display);
-
-        if (display.ShowStatusLine.Value)
-            DrawStatusLine(display);
-    }
-
-    /// <summary>
-    /// Three sample scores through the overlay's own drawing, with the display's palette, thickness and gap: what the
-    /// choosing overlay looks like without waiting for a Cauldron. Hidden while the Fates panel is open.
-    /// </summary>
-    private void DrawPreview(DisplaySettings display)
-    {
-        var window = Safe.Read(GameController, static g => g.Window.GetWindowRectangleTimeCache,
-            default(SharpDX.RectangleF));
-
-        if (window.Width <= 0f)
-            return;
-
-        var fates = AuguryCatalogue.Fates;
-        var crowkeeper = fates.FirstOrDefault(f => f.Id == "Crowkeeper");
-        var dryad = fates.FirstOrDefault(f => f.Id == "Dryad");
-        var y = window.Y + window.Height / 2f - 120f;
-        var cards = new[]
+        if (_panelState.Visible)
         {
-            new FateCard("Crowkeeper", crowkeeper, null, new SharpDX.RectangleF(window.X + window.Width / 4f - 90f, y, 180f, 240f), [], false),
-            new FateCard("Dryad", dryad, 2, new SharpDX.RectangleF(window.X + window.Width / 2f - 90f, y, 180f, 240f), [], false),
-            new FateCard("Unknown", null, null, new SharpDX.RectangleF(window.X + window.Width * 3f / 4f - 90f, y, 180f, 240f), [], false),
-        };
-        var scores = new FateScore[]
-        {
-            new(cards[0], 42, 20, 22d, true, null, 3, 0),
-            new(cards[1], 36, 58, -22d, true, null, 3, 0),
-            new(cards[2], 5, 5, 0d, false, null, 3, 1),
-        };
-
-        FateOverlay.DrawScores(Graphics, scores, display);
-    }
-
-    /// <summary>The tracker's state at a glance, bottom left: Cauldrons tracked, slots advised for, Fates per offer.</summary>
-    private void DrawStatusLine(DisplaySettings display)
-    {
-        var window = Safe.Read(GameController, static g => g.Window.GetWindowRectangleTimeCache,
-            default(SharpDX.RectangleF));
-
-        if (window.Width <= 0f)
-            return;
-
-        var text = FateOverlay.StatusLineOf(Cauldrons.Cauldrons.Count,
-            InvocationAdvisor.SlotsFor(_panelState, ObservedSlots), Settings.Debug.FatesPerOffer.Value);
-
-        Graphics.DrawTextWithBackground(text,
-            new System.Numerics.Vector2(window.X + 8f, window.Y + window.Height - 24f),
-            Colours.FromArgb(255, 245, 245, 245), ExileCore.Shared.Enums.FontAlign.Left,
-            Colours.FromArgb(200, 0, 0, 0));
+            FateOverlay.DrawMustTakeRewards(Graphics, _panelState, Settings.Rewards);
+            FateOverlay.DrawRewardsWithoutWeight(Graphics, _panelState, Settings.Rewards);
+        }
     }
 }

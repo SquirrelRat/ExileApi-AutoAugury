@@ -18,6 +18,8 @@ namespace AutoAugury;
 ///   on, with a tooltip naming them), and the best card (every best card, on a tie) framed.
 /// - At the boss: only the card to place now framed, with what it adds ("+15"), and under the invocation slots what
 ///   each pick adds in placing order, with a warning when the placed cards cost something.
+/// - In both views: each reward icon that has no weight framed in red (DrawRewardsWithoutWeight), and each Must take
+///   reward framed in purple (DrawMustTakeRewards).
 /// </summary>
 internal static class FateOverlay
 {
@@ -27,36 +29,23 @@ internal static class FateOverlay
     /// <summary>Yellow for the other picks.</summary>
     private static readonly Color OtherColour = Colours.FromArgb(255, 255, 210, 80);
 
-    /// <summary>Red for a pick that scores below zero.</summary>
+    /// <summary>Red for a pick that scores below zero, and for a reward without a weight.</summary>
     private static readonly Color NegativeColour = Colours.FromArgb(255, 235, 90, 90);
 
-    /// <summary>Purple for a copy that empowers an earlier one, AutoExpedition's reward colour.</summary>
-    private static readonly Color EmpowerColour = Colours.FromArgb(255, 190, 120, 255);
+    /// <summary>How far the red frame round a reward icon stands off the icon, in pixels. Chosen.</summary>
+    private const float RewardFrameMargin = 3f;
+
+    /// <summary>
+    /// How far a card's frame stands outside its reward icons, in pixels: beyond a reward's red frame
+    /// (RewardFrameMargin and its 3 px line), so the two never touch. Chosen.
+    /// </summary>
+    private const float CardFrameIconMargin = 8f;
+
+    /// <summary>Purple, AutoExpedition's reward colour: the Must take rewards' frames and line only.</summary>
+    private static readonly Color MustTakeColour = Colours.FromArgb(255, 190, 120, 255);
 
     private static readonly Color TextColour = Colours.FromArgb(255, 245, 245, 245);
     private static readonly Color Background = Colours.FromArgb(200, 0, 0, 0);
-
-    /// <summary>What dims the picks after the next: translucent black drawn over the card.</summary>
-    private static readonly Color DimColour = Colours.FromArgb(140, 0, 0, 0);
-
-    /// <summary>One overlay colour set: the best pick, the other picks, picks scoring below zero, empowering copies.</summary>
-    internal readonly record struct OverlayPalette(Color Best, Color Other, Color Negative, Color Empower);
-
-    /// <summary>The standard set: the colours above.</summary>
-    private static readonly OverlayPalette StandardPalette = new(BestColour, OtherColour, NegativeColour, EmpowerColour);
-
-    /// <summary>
-    /// Okabe-Ito's colourblind-safe set, for Display > High-contrast overlay palette: green, orange and vermillion
-    /// stay apart for the common colour visions, with sky blue for empowering copies.
-    /// </summary>
-    private static readonly OverlayPalette SafePalette = new(
-        Colours.FromArgb(255, 0, 158, 115),
-        Colours.FromArgb(255, 230, 159, 0),
-        Colours.FromArgb(255, 213, 94, 0),
-        Colours.FromArgb(255, 86, 180, 233));
-
-    /// <summary>The overlay's colour set: the colourblind-safe one on request, else the standard one.</summary>
-    public static OverlayPalette PaletteFor(bool highContrast) => highContrast ? SafePalette : StandardPalette;
 
     /// <summary>The tooltip on a score label with its parts, naming them in order.</summary>
     private const string ScoreWithPartsHelp = "Total weight (Weight now + Potential weight)";
@@ -72,19 +61,18 @@ internal static class FateOverlay
 
     /// <summary>
     /// Writes each offered card's score label above it (ScoreLabelOf) and frames the best card (every best card, on an
-    /// exact tie), the best by the unrounded value (FateScore.Value), not by the Total written: weak cards often all
-    /// round to the same Total. While the mouse is over a label, an ImGui tooltip names the parts (ScoreWithPartsHelp)
-    /// and gives that card's weight without rounding, to two places ("Weight without rounding: 0.46").
+    /// exact tie): the best by FateScoring.BestOf, the Must take rule first and then the unrounded value
+    /// (FateScore.Value), not the Total written, since weak cards often all round to the same Total. A card the Must
+    /// take rule ranks gets a purple line above its score, "must take +6371". While the mouse is over a label, an ImGui
+    /// tooltip names the parts (ScoreWithPartsHelp) and gives that card's weight without rounding, to two places
+    /// ("Weight without rounding: 0.46").
     /// </summary>
     public static void DrawScores(Graphics graphics, IReadOnlyList<FateScore> scores, DisplaySettings display)
     {
         if (scores.Count == 0)
             return;
 
-        var palette = PaletteFor(display.HighContrastPalette.Value);
-        var thickness = display.FrameThickness.Value;
-        var gap = display.ScoreLineGap.Value;
-        var best = scores.Max(static s => s.Value);
+        var best = FateScoring.BestOf(scores);
         var lineHeight = LineHeightOf(graphics);
         var mouse = ImGui.GetMousePos();
         FateScore hovered = null;
@@ -96,14 +84,17 @@ internal static class FateOverlay
             if (rect.Width <= 0f)
                 continue;
 
-            var isBest = score.Value >= best - SameValue;
-            var colour = isBest ? palette.Best : score.Total < 0 ? palette.Negative : palette.Other;
+            var isBest = best.Contains(score);
+            var colour = isBest ? BestColour : score.Total < 0 ? NegativeColour : OtherColour;
 
             if (isBest)
-                graphics.DrawFrame(rect, palette.Best, thickness);
+                graphics.DrawFrame(FrameRectOf(score.Card), BestColour, 3);
 
             var label = DrawAbove(graphics, rect, 1, lineHeight, ScoreLabelOf(score, display.ShowScoreBreakdown),
-                colour, gap);
+                colour);
+
+            if (score.MustTakeRank > 0d)
+                DrawAbove(graphics, rect, 2, lineHeight, $"must take +{score.MustTakeRank:0}", MustTakeColour);
 
             if (mouse.X >= label.Left && mouse.X <= label.Right && mouse.Y >= label.Top && mouse.Y <= label.Bottom)
                 hovered = score;
@@ -117,40 +108,82 @@ internal static class FateOverlay
     }
 
     /// <summary>
-    /// One decision: the card to place now gets the frame and its order badge ("2. +40 pair"); the later picks get
-    /// a thin frame and are dimmed, so the eye lands on the next click. Placed picks are not framed: their cards
-    /// read greyed in the collection row already, and the weights line below counts them. The banner names the next
-    /// pick with its progress ("NEXT: place Houndmaster - 2 of 3 (+40 pair)"), written to the left of the confirm
-    /// button with what each pick adds in placing order under it ("weights: 15 + 15 + 5 = 35", "(any order)" when no
-    /// two picks are copies of one Fate). When the placed cards allow less than the best invocation, a red line
-    /// under it says how much and why: "wrong order" when a pair's copies went in the wrong way round, "not the best
+    /// Frames in purple each Must take reward icon (RewardSettings.IsMustTake) on a visible card, offered or collected,
+    /// lifted with a hovered card's content as DrawRewardsWithoutWeight's frames are. Drawn whatever the Display
+    /// settings.
+    /// </summary>
+    public static void DrawMustTakeRewards(Graphics graphics, FatesPanelState state, RewardSettings rewards) =>
+        DrawRewardFrames(graphics, state, r => r.Reward != null && rewards.IsMustTake(r.Reward.Family),
+            MustTakeColour);
+
+    /// <summary>
+    /// Frames in red each reward icon on a visible card, offered or collected, that counts nothing for want of a
+    /// weight (NewRewardRegistry.LacksWeight): a reward the catalogue does not have, until the player sets its weight
+    /// in the reward table. So a patch's new reward stands out on its card as well as in the message under the cursor
+    /// (CatalogueWarnings). Drawn whatever the Display settings, as a warning.
+    ///
+    /// The icons are read where they rest (FateCardReward.Rect); while the mouse is over a card's rectangle the game
+    /// lifts its content by FatesPanelState.HoverLift, and the frame is lifted with it in the same frame, from the
+    /// mouse position alone. Following the reads instead, ten a second, made the frame trail the icon visibly.
+    /// </summary>
+    public static void DrawRewardsWithoutWeight(Graphics graphics, FatesPanelState state, RewardSettings rewards) =>
+        DrawRewardFrames(graphics, state, r => NewRewardRegistry.LacksWeight(r, rewards), NegativeColour);
+
+    /// <summary>
+    /// Frames each reward icon the test picks, RewardFrameMargin off the icon, lifted by the hover lift while the
+    /// mouse is over its card's rectangle.
+    /// </summary>
+    private static void DrawRewardFrames(Graphics graphics, FatesPanelState state, Func<FateCardReward, bool> framed,
+        Color colour)
+    {
+        var mouse = ImGui.GetMousePos();
+
+        foreach (var card in state.Offered.Concat(state.Collection))
+        {
+            var cardRect = card.Rect;
+            var hovered = mouse.X >= cardRect.Left && mouse.X <= cardRect.Right && mouse.Y >= cardRect.Top &&
+                          mouse.Y <= cardRect.Bottom;
+            var lift = !hovered ? 0f : state.HoverLift > 0f ? state.HoverLift : FatesPanel.UnmeasuredHoverLift;
+
+            foreach (var reward in card.Rewards)
+            {
+                if (reward.Rect.Width <= 0f || !framed(reward))
+                    continue;
+
+                var rect = reward.Rect;
+
+                graphics.DrawFrame(new RectangleF(rect.X - RewardFrameMargin, rect.Y - lift - RewardFrameMargin,
+                    rect.Width + 2f * RewardFrameMargin, rect.Height + 2f * RewardFrameMargin), colour, 3);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Frames only the card to place next (InvocationGuide.Next: the remaining card that adds the most while the order
+    /// is free, the advice's next while two copies of one Fate are still to place), green, with what placing it adds
+    /// above it ("+15", "+40 pair", "+45 triple"). A Fate's second or third copy was framed purple until 2026-11-19,
+    /// when purple became the Must take rewards' alone (the user). Framing every card while the order was free was
+    /// tried and dropped as more confusing. Writes one line to the left of the confirm
+    /// button: what each pick adds in placing order, as placed so far ("weights: 15 + 15 + 5 = 35"), with "(any order)"
+    /// when no two picks are copies of one Fate. When the placed cards allow less than the best invocation, a red line
+    /// under it says how much and why: "wrong order" when copies of one Fate went in the wrong order, "not the best
     /// Fates" when a placed card is not among them.
     /// </summary>
-    public static void DrawGuide(Graphics graphics, InvocationGuide guide, FatesPanelState state,
-        DisplaySettings display)
+    public static void DrawGuide(Graphics graphics, InvocationGuide guide, FatesPanelState state)
     {
         var lineHeight = LineHeightOf(graphics);
-        var palette = PaletteFor(display.HighContrastPalette.Value);
-        var thickness = display.FrameThickness.Value;
-        var gap = display.ScoreLineGap.Value;
+        var framed = guide.Next == null ? [] : new[] { guide.Next };
 
-        foreach (var pick in guide.Remaining)
+        foreach (var pick in framed)
         {
             if (pick.Card.Rect.Width <= 0f)
                 continue;
 
-            if (ReferenceEquals(pick, guide.Next))
-            {
-                graphics.DrawFrame(pick.Card.Rect, palette.Best, thickness);
-                DrawAbove(graphics, pick.Card.Rect, 1, lineHeight, PickLabel(guide, pick), palette.Best, gap);
-            }
-            else
-            {
-                var colour = pick.Empowers == null ? palette.Other : palette.Empower;
+            var copyMark = pick.Empowers != null ? " pair" : pick.ThirdCopyOf != null ? " triple" : "";
+            var label = Signed(guide.GainOf(pick)) + copyMark;
 
-                graphics.DrawFrame(pick.Card.Rect, colour, 1);
-                graphics.DrawBox(pick.Card.Rect, DimColour);
-            }
+            graphics.DrawFrame(FrameRectOf(pick.Card), BestColour, 3);
+            DrawAbove(graphics, pick.Card.Rect, 1, lineHeight, label, BestColour);
         }
 
         var weights = guide.Gains.Count == 0
@@ -183,42 +216,14 @@ internal static class FateOverlay
         else
             return;
 
-        var banner = NextBannerOf(guide);
-
-        graphics.DrawTextWithBackground(banner ?? weights, at, TextColour, align, Background);
-
-        var under = at.Y + lineHeight;
-
-        if (banner != null)
-        {
-            graphics.DrawTextWithBackground(weights, at with { Y = under }, TextColour, align, Background);
-            under += lineHeight;
-        }
+        graphics.DrawTextWithBackground(weights, at, TextColour, align, Background);
 
         if (warning != null)
         {
-            graphics.DrawTextWithBackground(warning, at with { Y = under },
-                PaletteFor(display.HighContrastPalette.Value).Negative, align, Background);
+            graphics.DrawTextWithBackground(warning, at with { Y = at.Y + lineHeight }, NegativeColour, align,
+                Background);
         }
     }
-
-    /// <summary>The banner naming the card to place now with its progress, or null when all are placed.</summary>
-    public static string NextBannerOf(InvocationGuide guide) =>
-        guide.Next == null
-            ? null
-            : $"NEXT: place {guide.Next.Card.Name} - {guide.Next.Order} of {guide.Advice.Picks.Count} " +
-              $"({GainLabel(guide, guide.Next)})";
-
-    /// <summary>One remaining pick's label: its placing order, what it adds, and whether it empowers an earlier copy.</summary>
-    public static string PickLabel(InvocationGuide guide, InvocationPick pick) =>
-        $"{pick.Order}. " + GainLabel(guide, pick);
-
-    private static string GainLabel(InvocationGuide guide, InvocationPick pick) =>
-        Signed(guide.GainOf(pick)) + (pick.Empowers == null ? "" : " pair");
-
-    /// <summary>The status line's text: what the tracker, the slot count and the offer model currently say.</summary>
-    public static string StatusLineOf(int tracked, int slots, int fatesPerOffer) =>
-        $"Augury: {tracked} tracked | {slots} slots | {fatesPerOffer}/offer";
 
     private static string Signed(int value) => value switch
     {
@@ -230,22 +235,87 @@ internal static class FateOverlay
     /// <summary>
     /// A score as the overlay writes it, in the boss view's "15 + 15 + 5" form: "24 (5 + 19)", the total, then what
     /// the card adds to the best invocation now plus the change in copy potential (CopyPotential); "36 (58 - 22)" when
-    /// the potential falls; the total alone without its parts. " ?" follows when a reward on the card matched no
-    /// catalogue reward, or its name no Fate; "tier ?" when the card's tier cannot be read but the Fate has tiers.
+    /// the potential falls; the total alone without its parts. The potential written is the total less the gain, so
+    /// the parts add up to the rounded total. " ?" follows when a reward on the card has no weight (a reward the
+    /// catalogue does not have, until its weight is set: NewRewardRegistry), or its name matches no Fate.
     /// </summary>
     public static string ScoreLabelOf(FateScore score, bool withParts)
     {
         var uncertain = score.UnknownRewards > 0 || score.Card.Fate == null ? " ?" : "";
-        var tierUnknown = score.Card is { Fate: not null, Tier: null } &&
-            AuguryCatalogueLookup.HasDistinctTiers(score.Card.Fate) ? " tier ?" : "";
 
         if (!withParts)
-            return $"{score.Total}{uncertain}{tierUnknown}";
+            return $"{score.Total}{uncertain}";
 
         var potential = score.Total - score.Gain;
 
-        return $"{score.Total} ({score.Gain} {(potential < 0 ? "-" : "+")} {Math.Abs(potential)})" +
-            $"{uncertain}{tierUnknown}";
+        return $"{score.Total} ({score.Gain} {(potential < 0 ? "-" : "+")} {Math.Abs(potential)}){uncertain}";
+    }
+
+    /// <summary>
+    /// "Estimated: 1/3" to the left of the panel's close button while choosing and the panel shows no Fate counter:
+    /// the Cauldron being chosen at, of the map's estimated Cauldrons: MapCauldrons' setting ("1/3.5" for a fraction),
+    /// or more when more are known (FateScoring.CauldronProgressOf). Not drawn when progress is empty.
+    /// </summary>
+    public static void DrawCauldronProgress(Graphics graphics, FatesPanelState state,
+        (int Current, double Total) progress)
+    {
+        var close = state.CloseButton;
+
+        if (close.Width <= 0f || progress.Total <= 0)
+            return;
+
+        var lineHeight = LineHeightOf(graphics);
+
+        graphics.DrawTextWithBackground(
+            $"Estimated: {progress.Current}/{progress.Total.ToString("0.#", CultureInfo.InvariantCulture)}",
+            new Vector2(close.X - 8f, close.Y + close.Height / 2f - lineHeight / 2f), TextColour, FontAlign.Right,
+            Background);
+    }
+
+    private static float LineHeightOf(Graphics graphics) => graphics.MeasureText("Ag").Y + 2f;
+
+    /// <summary>
+    /// The rectangle a card's frame is drawn on: the card's own, grown to take in each reward icon with
+    /// CardFrameIconMargin round it. Since 3.30.0c made the icons larger they hang below the card's rectangle (dump of
+    /// 2026-11-18 23:15:18: a card at 763,161 345x476, bottom 637, its icons 51x48 at y 599, bottom 647; before, a
+    /// card's 40x37 icons ended 7 px inside it), and a frame on the card's rectangle alone drew its bottom line through
+    /// them. Taken from the rectangles read, so a later resize is followed without a new offset. The icons are taken
+    /// where they rest (FateCardReward.Rect), so the frame stays put when the card is hovered and its content lifts;
+    /// following the lift, read ten times a second, made the frame's bottom line jump behind the card.
+    /// </summary>
+    private static RectangleF FrameRectOf(FateCard card)
+    {
+        var (left, top, right, bottom) = (card.Rect.Left, card.Rect.Top, card.Rect.Right, card.Rect.Bottom);
+
+        foreach (var reward in card.Rewards)
+        {
+            var icon = reward.Rect;
+
+            if (icon.Width <= 0f)
+                continue;
+
+            left = Math.Min(left, icon.Left - CardFrameIconMargin);
+            top = Math.Min(top, icon.Top - CardFrameIconMargin);
+            right = Math.Max(right, icon.Right + CardFrameIconMargin);
+            bottom = Math.Max(bottom, icon.Bottom + CardFrameIconMargin);
+        }
+
+        return new RectangleF(left, top, right - left, bottom - top);
+    }
+
+    /// <summary>
+    /// A centred line of text above a card, line 1 just above it, line 2 above that. Returns the text's rectangle, by
+    /// MeasureText, for hover tests.
+    /// </summary>
+    private static RectangleF DrawAbove(Graphics graphics, RectangleF rect, int line, float lineHeight, string text,
+        Color colour)
+    {
+        var centre = new Vector2(rect.X + rect.Width / 2f, rect.Y - line * lineHeight - 2f);
+        var size = graphics.MeasureText(text);
+
+        graphics.DrawTextWithBackground(text, centre, colour, FontAlign.Center, Background);
+
+        return new RectangleF(centre.X - size.X / 2f, centre.Y, size.X, size.Y);
     }
 
     /// <summary>
@@ -341,41 +411,5 @@ internal static class FateOverlay
             lines.Add(current);
 
         return lines;
-    }
-
-    /// <summary>
-    /// "Estimated: 1/3 (tracked)" to the left of the panel's close button while choosing: the Cauldron being chosen
-    /// at, of the map's estimated Cauldrons (FateScoring.CauldronProgressOf), and where the total comes from.
-    /// </summary>
-    public static void DrawCauldronProgress(Graphics graphics, FatesPanelState state,
-        (int Current, int Total, string Source) progress)
-    {
-        var close = state.CloseButton;
-
-        if (close.Width <= 0f || progress.Total <= 0)
-            return;
-
-        var lineHeight = LineHeightOf(graphics);
-
-        graphics.DrawTextWithBackground($"Estimated: {progress.Current}/{progress.Total} ({progress.Source})",
-            new Vector2(close.X - 8f, close.Y + close.Height / 2f - lineHeight / 2f), TextColour, FontAlign.Right,
-            Background);
-    }
-
-    private static float LineHeightOf(Graphics graphics) => graphics.MeasureText("Ag").Y + 2f;
-
-    /// <summary>
-    /// A centred line of text above a card, line 1 just above it, line 2 above that, with the display's gap between
-    /// the card and the first line. Returns the text's rectangle, by MeasureText, for hover tests.
-    /// </summary>
-    private static RectangleF DrawAbove(Graphics graphics, RectangleF rect, int line, float lineHeight, string text,
-        Color colour, float gap)
-    {
-        var centre = new Vector2(rect.X + rect.Width / 2f, rect.Y - line * lineHeight - gap);
-        var size = graphics.MeasureText(text);
-
-        graphics.DrawTextWithBackground(text, centre, colour, FontAlign.Center, Background);
-
-        return new RectangleF(centre.X - size.X / 2f, centre.Y, size.X, size.Y);
     }
 }

@@ -24,11 +24,28 @@ internal static class Section
 
 public class AutoAugurySettings : ISettings
 {
-    public AutoAugurySettings() => ResetAllSettingsUi = new CustomNode(DrawResetAllSettings);
+    public AutoAugurySettings()
+    {
+        DevelopmentNoticeUi = new CustomNode(() => DevelopmentNotice.Draw(this));
+        ResetAllSettingsUi = new CustomNode(DrawResetAllSettings);
+    }
 
-    /// <summary>First in the menu: the plugin is in development, and its known limits (DevelopmentNotice).</summary>
+    /// <summary>
+    /// First in the menu: the plugin is in development, its known limits, and Fates per Cauldron under the limit it
+    /// answers (DevelopmentNotice). Made in the constructor because it draws a setting.
+    /// </summary>
     [JsonIgnore]
-    public CustomNode DevelopmentNoticeUi { get; set; } = new(DevelopmentNotice.Draw);
+    public CustomNode DevelopmentNoticeUi { get; set; }
+
+    /// <summary>
+    /// The Fates a Cauldron is taken to offer, on average, for the chance that a later offer shows a Fate again
+    /// (CopyPotential.PerOfferChance). Drawn by DevelopmentNotice under its known limit, not by the menu. Offers of 3
+    /// and of 4 were seen in one map after patch 3.30.0.4 (the user, 2026-11-19); what decides is not in the client's
+    /// data (no stat for it among the patch's Augury stats), so it is the player's to set: 3 to 5 (the user's range),
+    /// 3.5 until set, the middle of what was seen.
+    /// </summary>
+    [IgnoreMenu]
+    public RangeNode<float> FatesPerCauldron { get; set; } = new(3.5f, 3f, 5f);
 
     /// <summary>
     /// The button at the top of the menu that puts every setting back to its default except Enable (SettingsReset).
@@ -44,7 +61,7 @@ public class AutoAugurySettings : ISettings
     /// <summary>
     /// Which built-in changes this saved file has had applied. A saved file holds a value for every setting, so a
     /// changed default never reaches it on its own; a change that must reach saved files raises this and adds a step
-    /// to AutoAugury.ApplySettingsChanges. The same pattern as AutoExpedition's ConfigVersion.
+    /// to SettingsChanges. The same pattern as AutoExpedition's ConfigVersion.
     /// </summary>
     [IgnoreMenu]
     public int ConfigVersion { get; set; }
@@ -89,7 +106,9 @@ public class AutoAugurySettings : ISettings
 
 /// <summary>
 /// The reward weights: what one reward of each family is worth to the player, the scale FateScoring adds up. Kept in a
-/// dictionary by family Id, holding only the weights the player changed; the rest are RewardFamilies' defaults.
+/// dictionary by family Id, holding only the weights the player changed; the rest are RewardFamilies' defaults. Also
+/// the rewards learned from the panel that the catalogue does not have (NewRewardRegistry), whose weights share the
+/// dictionary.
 /// </summary>
 public class RewardSettings
 {
@@ -100,25 +119,48 @@ public class RewardSettings
     public CustomNode WeightsUi { get; set; }
 
     /// <summary>
-    /// Whether the table lists the Ruthless-only families (RewardFamilies.IsHardModeOnly): three rows of rewards
-    /// never seen offered. Scoring is by family either way; this only cleans the table.
-    /// </summary>
-    [Menu("Show Ruthless-only families",
-        "Lists the families whose rewards are taken to be Ruthless-only.\n" +
-        "Scoring counts their families either way.")]
-    public ToggleNode ShowHardModeFamilies { get; set; } = new(true);
-
-    /// <summary>
     /// The weights the player set, by reward family Id. A weight equal to its default is removed rather than kept, so
-    /// a changed default reaches every install that never set that family. ExileCore fills this on load without
-    /// replacing it, which for a dictionary sets each saved entry.
+    /// a changed default reaches every install that never set that family; a learned reward's weight is kept whatever
+    /// it is, since being here is what marks it set. ExileCore fills this on load without replacing it, which for a
+    /// dictionary sets each saved entry.
     /// </summary>
     [IgnoreMenu]
     public Dictionary<string, int> Weights { get; set; } = new();
 
     /// <summary>
-    /// A family's weight: the player's if set, else its default, 0 for an unknown family; held to the table's range,
-    /// 0 to 4000 (a reward cannot be worth less than nothing; the first build allowed -100, so a saved value may be).
+    /// The rewards cards have shown that the catalogue does not have, learned by NewRewardRegistry, in the order they
+    /// were first seen. ExileCore fills this on load by adding the saved entries to the empty list;
+    /// NewRewardRegistry.Tidy drops repeats. A settings reset leaves it (it is not a node), and empties the weights.
+    /// </summary>
+    [IgnoreMenu]
+    public List<NewReward> NewRewards { get; set; } = new();
+
+    /// <summary>
+    /// The Must take marks the player changed, by family Id: true marks a family Must take, false clears a default
+    /// mark; the rest are RewardFamilies.MustTakeByDefault. A Must take reward decides the pick before the weights do
+    /// (MustTakeRule) and is framed purple on its card. A mark equal to its default is removed rather than kept.
+    /// </summary>
+    [IgnoreMenu]
+    public Dictionary<string, bool> MustTake { get; set; } = new();
+
+    /// <summary>Whether a family is Must take: the player's mark if set, else its default.</summary>
+    public bool IsMustTake(string family) =>
+        family != null &&
+        (MustTake.TryGetValue(family, out var marked) ? marked : RewardFamilies.MustTakeByDefault(family));
+
+    /// <summary>Marks a family Must take or not, keeping only a mark that differs from its default.</summary>
+    public void SetMustTake(string family, bool mustTake)
+    {
+        if (mustTake == RewardFamilies.MustTakeByDefault(family))
+            MustTake.Remove(family);
+        else
+            MustTake[family] = mustTake;
+    }
+
+    /// <summary>
+    /// A family's weight: the player's if set, else its default, 0 for an unknown or learned family; held to the
+    /// table's range, 0 to WeightTables.HighestRewardWeight (a reward cannot be worth less than nothing; the first
+    /// build allowed -100, so a saved value may be).
     /// </summary>
     public int WeightOf(string family) =>
         Math.Clamp(family != null && Weights.TryGetValue(family, out var weight)
@@ -132,14 +174,27 @@ public class RewardSettings
     /// <summary>
     /// Drops every saved weight equal to its family's default, so a weight saved before its default changed to the
     /// same value no longer counts as set (it would stay "changed" in the table, and keep a later default from it).
-    /// Run on every start; a family no longer in the catalogue is dropped too.
+    /// Run on every start, after NewRewardRegistry.Tidy; a family neither in the catalogue nor learned is dropped too.
+    /// The Must take marks are tidied the same way.
     /// </summary>
     public void ForgetWeightsAtDefault()
     {
+        var learned = NewRewards.Select(NewRewardRegistry.IdOf).ToHashSet();
+
         foreach (var family in Weights.Keys.ToList())
         {
+            if (learned.Contains(family))
+                continue;
+
             if (RewardFamilies.Of(family) is not { } known || Weights[family] == known.DefaultWeight)
                 Weights.Remove(family);
+        }
+
+        foreach (var family in MustTake.Keys.ToList())
+        {
+            if (!learned.Contains(family) && RewardFamilies.Of(family) == null ||
+                MustTake[family] == RewardFamilies.MustTakeByDefault(family))
+                MustTake.Remove(family);
         }
     }
 }
@@ -195,32 +250,6 @@ public class DisplaySettings
     public ToggleNode ShowInvocationAdvice { get; set; } = new(true);
 
     /// <summary>
-    /// Whether the overlay uses the colourblind-safe set (Display > High-contrast overlay palette): Okabe-Ito green,
-    /// orange and vermillion instead of green, yellow and red, with sky blue for empowering copies. The order badges
-    /// say the picks apart either way.
-    /// </summary>
-    [Menu("High-contrast overlay palette")]
-    public ToggleNode HighContrastPalette { get; set; } = new(false);
-
-    /// <summary>
-    /// The overlay frames' thickness, in pixels; the next pick to place gets the full thickness, the later picks one
-    /// less (never below one).
-    /// </summary>
-    [Menu("Frame thickness")]
-    public RangeNode<int> FrameThickness { get; set; } = new(3, 1, 6);
-
-    /// <summary>The gap between a card and the score label above it, in pixels.</summary>
-    [Menu("Score line gap")]
-    public RangeNode<int> ScoreLineGap { get; set; } = new(2, 0, 30);
-
-    /// <summary>
-    /// Whether the large map's Cauldron icons mark the Cauldron whose choice waits: a frame around its icon, so the
-    /// owed Cauldron stands out from the ones still to run.
-    /// </summary>
-    [Menu("Mark owed Cauldron icon")]
-    public ToggleNode MarkOwedIcon { get; set; } = new(true);
-
-    /// <summary>
     /// Whether a large icon is drawn on the large map over each Cauldron not yet picked from, kept where the Cauldron
     /// was last seen once it is out of range: the game's Cauldron minimap icon, from the plugin's textures folder. See
     /// CauldronMapIcons.
@@ -229,9 +258,23 @@ public class DisplaySettings
     public ToggleNode DrawLargerMinimapIcon { get; set; } = new(true);
 
     /// <summary>
-    /// Whether the Cauldron whose choice waits is also marked in the world: a ring on the ground at its base and
-    /// "READY" above it, the same signal Mark owed Cauldron icon frames on the map. Hidden while the Fates panel is
-    /// open, where the player is already at it. See CauldronWorldMarker.
+    /// The side of the larger Cauldron icon on the large map, in pixels; the icon's art is 64 px. The default, 40, was
+    /// chosen.
+    /// </summary>
+    [Menu("Minimap icon size")]
+    public RangeNode<int> MinimapIconSize { get; set; } = new(40, 8, 128);
+
+    /// <summary>
+    /// Whether the Cauldron whose choice waits is framed on the large map in the overlay's yellow: the one you can
+    /// pick from now, as opposed to the ones still to come.
+    /// </summary>
+    [Menu("Mark owed Cauldron icon")]
+    public ToggleNode MarkOwedIcon { get; set; } = new(true);
+
+    /// <summary>
+    /// Whether the Cauldron whose choice waits is also marked in the world: a ring on the ground at its base, a beam
+    /// above it and a frame with "READY" at its top. Hidden while the Fates panel is open, where the player is already
+    /// at it. See CauldronWorldMarker.
     /// </summary>
     [Menu("Mark owed Cauldron in the world")]
     public ToggleNode MarkOwedInWorld { get; set; } = new(true);
@@ -282,47 +325,6 @@ public class DisplaySettings
     /// </summary>
     [Menu("Label rewards")]
     public ToggleNode LabelRewards { get; set; } = new(true);
-
-    /// <summary>
-    /// The side of the larger Cauldron icon on the large map, in pixels; the icon's art is 64 px. The default, 40, was
-    /// chosen.
-    /// </summary>
-    [Menu("Minimap icon size")]
-    public RangeNode<int> MinimapIconSize { get; set; } = new(40, 8, 128);
-
-    /// <summary>
-    /// Whether a one-line summary is drawn at the screen's bottom left while playing: Cauldrons tracked, invocation
-    /// slots and Fates modelled per offer. Off by default: it is for checking the tracker's state at a glance.
-    /// </summary>
-    [Menu("Show status line")]
-    public ToggleNode ShowStatusLine { get; set; } = new(false);
-
-    public DisplaySettings()
-    {
-        ChoosingNoteUi = new CustomNode(() => ImGui.TextDisabled(
-            "The game hides each Cauldron's offer until the previous Cauldron is picked from: " +
-            "scores cover this Cauldron only."));
-        PreviewUi = new CustomNode(() =>
-        {
-            if (ImGui.Button("Preview overlay on screen###autoauguryPreviewScores"))
-                PreviewScores = !PreviewScores;
-
-            ImGui.SameLine();
-            ImGui.TextDisabled(PreviewScores
-                ? "preview on: close the menu to see it"
-                : "draws three sample scores with your palette");
-        });
-    }
-
-    /// <summary>Not saved: whether the sample scores show (Display > Preview overlay on screen).</summary>
-    [JsonIgnore, IgnoreMenu]
-    public bool PreviewScores { get; set; }
-
-    [JsonIgnore]
-    public CustomNode ChoosingNoteUi { get; set; }
-
-    [JsonIgnore]
-    public CustomNode PreviewUi { get; set; }
 }
 
 public class DebugSettings
@@ -401,14 +403,4 @@ public class DebugSettings
         "Also walks hidden elements inside open panels.\n" +
         "Closed panels get one line each either way.")]
     public ToggleNode DumpHiddenElements { get; set; } = new(true);
-
-    [JsonIgnore]
-    public CustomNode OfferModelGroup { get; set; } = Section.Of("Offer model");
-
-    /// <summary>
-    /// How many Fates one Cauldron offer shows, for the copy potential's per-offer chance. Every offer seen showed
-    /// three (2026-11-14); when offers show another number, set it here rather than re-scoring on a wrong model.
-    /// </summary>
-    [Menu("Fates per offer")]
-    public RangeNode<int> FatesPerOffer { get; set; } = new(CopyPotential.FatesPerOffer, 1, 5);
 }

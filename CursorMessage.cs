@@ -7,10 +7,11 @@ using Graphics = ExileCore.Graphics;
 namespace AutoAugury;
 
 /// <summary>
-/// The last message, written under the mouse cursor for a few seconds and faded over its last second. One at a time: a
-/// new message replaces the one showing. MonsterModAlerter's, which is CraftUntilHighlighted's with a fixed duration;
-/// both take it from AutoExpedition's CursorWarning, which moved its warnings beside the cursor because players did not
-/// notice them anywhere else. Messages are a few words, not sentences.
+/// The last message, written under the mouse cursor for a few seconds and faded out over the last part of that. One at
+/// a time: a new message replaces the one showing. MonsterModAlerter's, which is CraftUntilHighlighted's with a fixed
+/// duration; both take it from AutoExpedition's CursorWarning, which moved its warnings beside the cursor because
+/// players did not notice them anywhere else. Messages are a few words, not sentences; a warning the player must act
+/// on (CatalogueWarnings) may say where, and is shown for longer.
 /// </summary>
 internal static class CursorMessage
 {
@@ -21,8 +22,11 @@ internal static class CursorMessage
         Info,
     }
 
-    /// <summary>How long a message stays up. AutoExpedition's cursor warnings default to 4 s as well.</summary>
-    private const double ShownSeconds = 4d;
+    /// <summary>A message's time unless Show says otherwise. AutoExpedition's warnings default to 4 s.</summary>
+    public const double DefaultShownSeconds = 4d;
+
+    /// <summary>The share of a message's time spent fading out, at least a second. Chosen.</summary>
+    private const double FadingShare = 0.3d;
 
     /// <summary>AutoExpedition's warning red.</summary>
     private static readonly Color ErrorColour = Colours.FromArgb(255, 235, 90, 90);
@@ -33,10 +37,12 @@ internal static class CursorMessage
     /// <summary>AutoExpedition's white (its common chest colour).</summary>
     private static readonly Color InfoColour = Colours.FromArgb(255, 245, 245, 245);
 
-    private static (string Text, Kind Kind, DateTime At) _shown = ("", Kind.Info, DateTime.MinValue);
+    private static (string Text, Kind Kind, DateTime At, double Seconds) _shown =
+        ("", Kind.Info, DateTime.MinValue, DefaultShownSeconds);
 
-    /// <summary>Shows a message, replacing any before it.</summary>
-    public static void Show(Kind kind, string text) => _shown = (text ?? "", kind, DateTime.UtcNow);
+    /// <summary>Shows a message for the given number of seconds, replacing any before it.</summary>
+    public static void Show(Kind kind, string text, double seconds = DefaultShownSeconds) =>
+        _shown = (text ?? "", kind, DateTime.UtcNow, seconds);
 
     /// <summary>Draws the message showing, if any.</summary>
     public static void Draw(Graphics graphics, GameController gameController)
@@ -46,7 +52,7 @@ internal static class CursorMessage
 
         var age = (DateTime.UtcNow - _shown.At).TotalSeconds;
 
-        if (age >= ShownSeconds)
+        if (age >= _shown.Seconds)
             return;
 
         var cursor = Safe.Read(gameController,
@@ -63,8 +69,9 @@ internal static class CursorMessage
             Math.Clamp(cursor.X + 16f, 0f, Math.Max(0f, window.Width - size.X - 4f)),
             Math.Clamp(cursor.Y + 44f, 0f, Math.Max(0f, window.Height - size.Y - 4f)));
 
-        // Fades over its last second rather than vanishing mid-read.
-        var alpha = (int)(255 * Math.Clamp(ShownSeconds - age, 0d, 1d));
+        // Fades over the last part of its time rather than vanishing mid-read.
+        var fading = Math.Max(1d, _shown.Seconds * FadingShare);
+        var alpha = (int)(255 * Math.Clamp((_shown.Seconds - age) / fading, 0d, 1d));
 
         var colour = _shown.Kind switch
         {
