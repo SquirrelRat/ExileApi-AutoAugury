@@ -403,4 +403,13 @@ public class DebugSettings
         "Also walks hidden elements inside open panels.\n" +
         "Closed panels get one line each either way.")]
     public ToggleNode DumpHiddenElements { get; set; } = new(true);
+
+    /// <summary>
+    /// Reads the Fates panel from the element tree even where the HUD's typed window (IngameUi.AuguryFateWindow) is
+    /// available. Off by default; on, it keeps the fallback path in use so a stale typed window cannot go unnoticed,
+    /// and the dump can compare the two.
+    /// </summary>
+    [Menu("Read the Fates panel from the element tree",
+        "Uses the fallback reader even where the HUD's typed window works.")]
+    public ToggleNode ElementTreePanelRead { get; set; } = new(false);
 }

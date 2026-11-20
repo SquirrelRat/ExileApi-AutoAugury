@@ -127,8 +127,9 @@ public class AutoAugury : BaseSettingsPlugin<AutoAugurySettings>
             _sincePanelRead.Restart();
 
             var areaLevel = Safe.Read(GameController, static g => g.Area.CurrentArea.RealLevel, 0);
-            var resolution = NewRewardRegistry.Resolve(_fatesPanel.Read(GameController), Settings.Rewards, areaLevel,
-                true);
+            var resolution = NewRewardRegistry.Resolve(
+                _fatesPanel.Read(GameController, Settings.Debug.ElementTreePanelRead.Value), Settings.Rewards,
+                areaLevel, true);
             var state = resolution.State;
 
             CatalogueWarnings.Update(resolution, Settings.Rewards);

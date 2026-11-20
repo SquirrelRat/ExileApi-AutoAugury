@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using ExileCore;
 using ExileCore.PoEMemory;
+using ExileCore.PoEMemory.Elements;
 using RectangleF = SharpDX.RectangleF;
 
 namespace AutoAugury;
@@ -175,7 +176,7 @@ internal sealed class FatesPanel
     /// </summary>
     public void Forget() => _panel = null;
 
-    public FatesPanelState Read(GameController gc)
+    public FatesPanelState Read(GameController gc, bool forceElementTree = false)
     {
         var panel = PanelOf(gc);
 
@@ -185,6 +186,10 @@ internal sealed class FatesPanel
         var body = ChildAt(panel, 2);
 
         var title = TitleOf(panel);
+
+        if (!forceElementTree && ReadFromWindow(gc, panel, body, title) is { } typed)
+            return typed;
+
         var rows = CardRowsOf(body);
         var top = CardsOf(rows.Count > 0 ? rows[0] : null);
         var bottom = CardsOf(rows.Count > 1 ? rows[1] : null);
@@ -203,9 +208,93 @@ internal sealed class FatesPanel
     }
 
     /// <summary>
+    /// The panel read through the HUD's typed window (IngameUi.AuguryFateWindow): the offer and the collection as cards
+    /// with their table Ids and outcome Ids, so nothing the plugin scores comes from a child index or matched text.
+    /// Null when the window is missing or reads empty - the element tree answers then. The title, the rectangles, the
+    /// buttons and the summary still come from the elements: the typed window has none of those.
+    /// </summary>
+    private static FatesPanelState ReadFromWindow(GameController gc, Element panel, Element body, string title)
+    {
+        var window = Safe.Read(gc, static g => g.IngameState?.IngameUi?.AuguryFateWindow, null);
+
+        if (window == null || !Safe.Read(window, static w => w.IsVisible, false))
+            return null;
+
+        var choices = Safe.Read(window, static w => w.CardChoices, null);
+        var owned = Safe.Read(window, static w => w.OwnedCards, null);
+        var offered = CardsOf(choices);
+        var collection = CardsOf(owned);
+
+        // An empty typed read on a visibly open panel means the type went stale: let the element tree answer.
+        if (offered.Count == 0 && collection.Count == 0)
+            return null;
+
+        var slots = new List<RectangleF>();
+
+        foreach (var choice in choices ?? [])
+        {
+            var rect = Safe.Read(choice, static c => c.GetClientRectCache, default(RectangleF));
+
+            if (rect.Width > 0f && rect.Height > 0f)
+                slots.Add(rect);
+        }
+
+        var summary = SummaryOf(ChildAt(body, 8));
+
+        return new FatesPanelState(true, title, offered, collection, slots, VisibleRectOf(ConfirmButtonOf(body)),
+            VisibleRectOf(ChildAt(panel, 3)))
+        {
+            SummaryLines = summary.Lines,
+            SummaryRect = summary.Rect,
+            Counter = CounterOf(body),
+        };
+    }
+
+    /// <summary>
+    /// The cards of a typed row (CardChoices or OwnedCards): each card's table Id resolved in the catalogue, its
+    /// outcomes by outcome Id with the copies they need (the outcome's tier), and whether the window says it is
+    /// selected. The card's own tier is not exposed by the typed window, so it reads null here.
+    /// </summary>
+    private static List<FateCard> CardsOf(IEnumerable<AuguryCardElement> cards)
+    {
+        var list = new List<FateCard>();
+
+        foreach (var card in cards ?? [])
+        {
+            var id = Safe.Read(card, static c => c.Card?.Id, null);
+
+            if (string.IsNullOrWhiteSpace(id))
+                continue;
+
+            var fate = AuguryCatalogueLookup.FateNamed(id);
+            var rewards = new List<FateCardReward>();
+
+            foreach (var outcome in Safe.Read(card, static c => c.Rewards, null) ?? [])
+            {
+                var outcomeId = Safe.Read(outcome, static o => o.Id, null);
+
+                if (string.IsNullOrWhiteSpace(outcomeId))
+                    continue;
+
+                var text = Safe.Read(outcome, static o => o.Description, "") ?? "";
+                var copies = Safe.Read(outcome, static o => o.Tier, 1);
+
+                rewards.Add(new FateCardReward(text, AuguryCatalogueLookup.RewardById(outcomeId), copies));
+            }
+
+            list.Add(new FateCard(fate?.Name ?? id, fate, null,
+                Safe.Read(card, static c => c.GetClientRectCache, default(RectangleF)), rewards,
+                Safe.Read(card, static c => c.IsSelected, false)));
+        }
+
+        return list;
+    }
+
+    /// <summary>
     /// The panel's card rows, top down: a body child holding a row of cards, the offer (or the invocation slots at the
     /// boss) first, the collection second. Found by the cards' shape rather than by index, so a patch that inserts an
-    /// element above them - as 3.30.0d did with the Fate counter - moves nothing the reader depends on.
+    /// element above them - as 3.30.0d did with the Fate counter - moves nothing the reader depends on. The fallback
+    /// when the typed window is unavailable.
     /// </summary>
     private static List<Element> CardRowsOf(Element body)
     {

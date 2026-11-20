@@ -213,7 +213,8 @@ internal static class Dump
         b.AppendLine("== Fates panel, as the reader sees it");
 
         var areaLevel = Safe.Read(gc, static g => g.Area.CurrentArea.RealLevel, 0);
-        var state = NewRewardRegistry.Resolve(new FatesPanel().Read(gc), settings.Rewards, areaLevel, false).State;
+        var state = NewRewardRegistry.Resolve(new FatesPanel().Read(gc, settings.Debug.ElementTreePanelRead.Value),
+            settings.Rewards, areaLevel, false).State;
 
         b.AppendLine($"  visible {state.Visible}, title \"{state.Title}\", choosing a Fate {state.ChoosingFate}, " +
                      $"invoking Fates {state.InvokingFates}, {state.Offered.Count} named in the top row of " +
