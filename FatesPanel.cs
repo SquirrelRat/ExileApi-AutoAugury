@@ -261,6 +261,11 @@ internal sealed class FatesPanel
 
         foreach (var card in cards ?? [])
         {
+            // An empty slot keeps the last card it showed, so the window's own IsCardPresent is what says a card is
+            // really there: at the boss with nothing invoked, all three slot widgets still name stale cards.
+            if (!Safe.Read(card, static c => c.IsCardPresent, false))
+                continue;
+
             var id = Safe.Read(card, static c => c.Card?.Id, null);
 
             if (string.IsNullOrWhiteSpace(id))
@@ -282,9 +287,11 @@ internal sealed class FatesPanel
                 rewards.Add(new FateCardReward(text, AuguryCatalogueLookup.RewardById(outcomeId), copies));
             }
 
+            // Placed reads as not active, the flag the element reader has used since 2026-11-14: an offer card reads
+            // active, a collection card sitting in an invocation slot does not.
             list.Add(new FateCard(fate?.Name ?? id, fate, null,
                 Safe.Read(card, static c => c.GetClientRectCache, default(RectangleF)), rewards,
-                Safe.Read(card, static c => c.IsSelected, false)));
+                Safe.Read(card, static c => !c.IsActive, false)));
         }
 
         return list;
